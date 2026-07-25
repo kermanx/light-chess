@@ -1,7 +1,7 @@
 // 联机层：基于 trystero（WebRTC P2P，Nostr 公共中继做信令），无需任何服务器。
 // 模型：房主权威——建房者是房主，负责分配座位、判定开局、持有权威对局状态；
 // 其余消息（放置动作）在 P2P 网关中直接广播，与原来的哑转发语义一致。
-import { joinRoom, type MessageAction, type Room } from 'trystero'
+import { defaultRelayUrls, joinRoom, type MessageAction, type Room } from 'trystero'
 import { seatColors, type Color } from './game'
 import {
   applyRemote,
@@ -21,13 +21,13 @@ const HELLO_INTERVAL = 2000
 const JOIN_TIMEOUT = 20000
 
 /**
- * 信令中继：覆盖 trystero 默认列表——默认列表按 appId 洗牌后可能恰好选中
- * 一批在某些网络（如大陆直连/部分代理规则）下全部不可达的中继，导致永远连不上。
- * 这里固定一份精选的高可用公共 Nostr 中继，任一可达即可完成握手。
+ * 信令中继：8 个精选高可用公共 Nostr 中继优先，其后跟上 trystero 内置的完整
+ * 默认列表（约 50 个）——连接全部并行尝试，任一可达即可完成握手，
+ * 为各种受限网络（大陆直连/代理规则/TUN）做最坏打算。
  * 仍可用 localStorage 的 light-chess:relays（逗号分隔 ws(s) 地址）整体覆盖，
  * 用于本地开发测试或公共中继不可达的网络环境。
  */
-const DEFAULT_RELAYS = [
+const PREFERRED_RELAYS = [
   'wss://relay.damus.io',
   'wss://nos.lol',
   'wss://nostr.mom',
@@ -48,7 +48,8 @@ const relayUrls = (): string[] => {
   } catch {
     // 忽略读取失败
   }
-  return DEFAULT_RELAYS
+  // 去重：精选列表与默认列表可能有交集
+  return [...new Set([...PREFERRED_RELAYS, ...defaultRelayUrls])]
 }
 
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
