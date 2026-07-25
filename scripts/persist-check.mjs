@@ -144,6 +144,24 @@ function makeDriver(page) {
   }, '重连后 B 落子同步到 A')
   console.log('ok: 重连后动作转发正常（A 状态:', stA2, '）')
 
+  // B（加入方）刷新：同样应恢复局面并 rejoin
+  await B.reload({ waitUntil: 'networkidle' })
+  await B.waitForSelector('svg.board-svg')
+  const stB2 = await waitFor(async () => {
+    const s = await db.status()
+    return s.includes('等待') && s
+  }, 'B 刷新后重连并等待蓝方落子')
+  console.log('ok: 加入方刷新后局面恢复并重连（B 状态:', stB2, '）')
+
+  // A 的掉线提示也应消除；A 落子后 B 能同步收到
+  await waitFor(async () => !(await da.status()).includes('掉线'), 'A 的掉线提示消除')
+  await da.clickEdgeU(PAD + 16.5 * S, PAD + 12 * S) // 蓝边镜 h:16:12
+  const stB3 = await waitFor(async () => {
+    const s = await db.status()
+    return s.includes('你的回合') && s
+  }, 'B 重连后 A 落子同步到 B')
+  console.log('ok: 加入方重连后动作转发正常（B 状态:', stB3, '）')
+
   await ctxA.close()
   await ctxB.close()
 }

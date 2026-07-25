@@ -2,7 +2,8 @@
 // 模型：房主权威——建房者是房主，负责分配座位、判定开局、持有权威对局状态；
 // 其余消息（放置动作）在 P2P 网关中直接广播，与原来的哑转发语义一致。
 // 信令双通道：Nostr 或 MQTT，由房间号首位区分（1=Nostr，2=MQTT）。
-import { defaultRelayUrls as nostrRelayUrls, joinRoom as joinRoomNostr, type MessageAction, type Room } from 'trystero'
+import { reactive } from 'vue'
+import { defaultRelayUrls as nostrRelayUrls, getRelaySockets as getRelaySocketsNostr, joinRoom as joinRoomNostr, type MessageAction, type Room } from 'trystero'
 import { seatColors, type Color } from './game'
 import {
   applyRemote,
@@ -19,7 +20,7 @@ const APP_ID = 'light-chess-kermanx'
 const NET_KEY = 'light-chess:net'
 const RELAYS_KEY = 'light-chess:relays'
 const HELLO_INTERVAL = 2000
-const JOIN_TIMEOUT = 20000
+const JOIN_TIMEOUT = 30000
 
 /** 信令通道 */
 export type Signaling = 'nostr' | 'mqtt'
@@ -120,7 +121,37 @@ let connected = new Set<string>()
 let peerByToken = new Map<string, string>()
 let welcomed = false
 let helloTimer: ReturnType<typeof setInterval> | null = null
+let relayTimer: ReturnType<typeof setInterval> | null = null
 let pending: { resolve: () => void; reject: (e: Error) => void } | null = null
+
+/** 信令中继连接状态（UI 诊断展示用）：up=曾连上过的中继数（峰值），total=尝试总数 */
+export const signaling = reactive({ up: 0, total: 0 })
+
+/** 轮询当前信令通道的中继 socket 状态（nostr / mqtt 各自统计） */
+function trackRelays(code: string) {
+  if (relayTimer) clearInterval(relayTimer)
+  signaling.up = 0
+  signaling.total = 0
+  const sig = signalingOf(code)
+  const poll = async () => {
+    try {
+      // getRelaySockets 返回 { [url]: WebSocket }，取 values 统计。
+      // 某些网络下 socket 会快速闪断（OPEN 窗口很短），故用峰值 latch：
+      // 只要曾连上过就说明中继可达，对用户更有诊断意义
+      const map: Record<string, { readyState: number }> =
+        sig === 'mqtt'
+          ? (await import('@trystero-p2p/mqtt')).getRelaySockets()
+          : getRelaySocketsNostr()
+      const socks = Object.values(map)
+      signaling.total = Math.max(signaling.total, socks.length)
+      signaling.up = Math.max(signaling.up, socks.filter((s) => s.readyState === 1).length)
+    } catch {
+      // 统计失败不影响功能
+    }
+  }
+  relayTimer = setInterval(poll, 500)
+  void poll()
+}
 
 /** 本机是否握着一局恢复中的对局（联机刷新重连） */
 const inGame = () => state.mode === 'online' && state.phase !== 'lobby'
@@ -274,6 +305,7 @@ async function openRoom(code: string) {
     },
     `room-${code}`,
   )
+  trackRelays(code)
   action = room.makeAction('msg')
   action.onMessage = (msg: Msg, ctx: { peerId: string }) => {
     try {
@@ -293,7 +325,7 @@ async function openRoom(code: string) {
   setSender((a) => sendAct(a))
 }
 
-/** 等待房主 welcome；期间周期广播 hello，超时视为房间不存在/房主不在线 */
+/** 等待房主 welcome；期间周期广播 hello，超时按中继连接情况给出具体原因 */
 function waitWelcome(): Promise<void> {
   return new Promise((resolve, reject) => {
     pending = { resolve, reject }
@@ -304,7 +336,13 @@ function waitWelcome(): Promise<void> {
       if (pending) {
         pending = null
         netClose()
-        reject(new Error('连接超时：房间不存在或房主不在线'))
+        reject(
+          new Error(
+            signaling.up === 0
+              ? '连接失败：当前网络连不上任何信令中继。请更换网络，或让房主换用另一种信令（Nostr / MQTT）'
+              : `已连上 ${signaling.up} 个信令中继，但联系不上房主：房间不存在、房主不在线，或 P2P 连接被当前网络拦截`,
+          ),
+        )
       }
     }, JOIN_TIMEOUT)
   })
@@ -373,6 +411,10 @@ export async function netRejoin(code: string, color: Color, playerCount: number)
 
 export function netClose() {
   clearHello()
+  if (relayTimer) clearInterval(relayTimer)
+  relayTimer = null
+  signaling.up = 0
+  signaling.total = 0
   pending = null
   setSender(null)
   if (room) void room.leave()

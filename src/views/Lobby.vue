@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { MAX_PLAYERS, MIN_PLAYERS } from '../game'
-import { netClose, netCreate, netJoin, type Signaling } from '../net'
+import { netClose, netCreate, netJoin, signaling, type Signaling } from '../net'
 import { SIZE_MAX, SIZE_MIN, startLocal, state } from '../store'
 
 const view = ref<'menu' | 'created' | 'join'>('menu')
@@ -187,6 +187,11 @@ onMounted(() => {
         <span class="pulse"></span>
         等待玩家加入 {{ state.roomJoined }}/{{ count }}<span class="dots"><i>.</i><i>.</i><i>.</i></span>
       </p>
+      <p class="relay-status" :class="{ warn: signaling.total > 0 && signaling.up === 0 }">
+        <template v-if="signaling.up > 0">信令中继已连接 {{ signaling.up }} 个</template>
+        <template v-else-if="signaling.total > 0">信令中继连接中（{{ signaling.up }}/{{ signaling.total }}）…若一直为 0，说明当前网络连不上中继，请换信令或网络</template>
+        <template v-else>信令中继连接中…</template>
+      </p>
 
       <button class="btn-plain cancel-btn" @click="cancel">取消</button>
     </div>
@@ -209,6 +214,10 @@ onMounted(() => {
         </button>
         <button class="btn-plain" @click="cancel">返回</button>
       </div>
+      <p v-if="busy" class="relay-status" :class="{ warn: signaling.total > 0 && signaling.up === 0 }">
+        <template v-if="signaling.up > 0">信令中继已连接 {{ signaling.up }} 个，正在联系房主…</template>
+        <template v-else>信令中继连接中（{{ signaling.up }}/{{ signaling.total }}）…</template>
+      </p>
     </div>
 
     <p v-if="error" class="error">{{ error }}</p>
@@ -290,6 +299,17 @@ onMounted(() => {
 .sig-hint {
   font-size: 12px;
   color: #b0a488;
+}
+.relay-status {
+  margin: 0;
+  font-size: 12px;
+  color: #b0a488;
+  max-width: 300px;
+  text-align: center;
+  line-height: 1.6;
+}
+.relay-status.warn {
+  color: #c47f2a;
 }
 .card {
   width: 180px;
