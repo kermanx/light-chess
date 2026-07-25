@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { MAX_PLAYERS, MIN_PLAYERS } from '../game'
 import { netClose, netCreate, netJoin } from '../net'
 import { SIZE_MAX, SIZE_MIN, startLocal, state } from '../store'
@@ -9,9 +9,32 @@ const code = ref('')
 const joinCode = ref('')
 const error = ref('')
 const busy = ref(false)
+const copied = ref(false)
 /** 玩家人数（单机与创建房间共用） */
 const count = ref(MIN_PLAYERS)
 const countOptions = Array.from({ length: MAX_PLAYERS - MIN_PLAYERS + 1 }, (_, i) => MIN_PLAYERS + i)
+
+/** 建房后生成的加入链接（其他玩家打开即可直接入座） */
+const joinUrl = computed(() =>
+  code.value ? `${location.origin}${location.pathname}?join=${code.value}` : '',
+)
+
+async function copyJoinUrl() {
+  try {
+    await navigator.clipboard.writeText(joinUrl.value)
+  } catch {
+    // 剪贴板不可用时退化为全选展示，用户手动复制
+  }
+  copied.value = true
+  setTimeout(() => (copied.value = false), 1600)
+}
+
+/** 清除地址栏里的 ?join= 参数（避免刷新后重复自动加入） */
+function clearJoinParam() {
+  if (new URLSearchParams(location.search).has('join')) {
+    history.replaceState(null, '', location.pathname)
+  }
+}
 
 function clampSize(e: Event) {
   const v = Math.round(Number((e.target as HTMLInputElement).value))
@@ -42,6 +65,7 @@ async function join() {
   try {
     await netJoin(joinCode.value)
     // 成功后会收到 start 消息，自动进入游戏
+    clearJoinParam()
   } catch (e) {
     error.value = (e as Error).message
   } finally {
@@ -53,7 +77,19 @@ function cancel() {
   netClose()
   view.value = 'menu'
   error.value = ''
+  clearJoinParam()
 }
+
+// 通过加入链接打开：?join=XXXX → 直接进入加入流程
+onMounted(() => {
+  const param = new URLSearchParams(location.search).get('join')
+  if (!param) return
+  const c = param.trim().toUpperCase()
+  if (!/^[A-Z2-9]{4}$/.test(c)) return
+  joinCode.value = c
+  view.value = 'join'
+  void join()
+})
 </script>
 
 <template>
@@ -91,8 +127,12 @@ function cancel() {
     </div>
 
     <div v-else-if="view === 'created'" class="panel">
-      <p class="panel-label">把房间号告诉其他玩家（{{ count }} 人局）</p>
+      <p class="panel-label">把链接发给其他玩家，打开即可加入（{{ count }} 人局）</p>
       <div class="room-code">{{ code }}</div>
+      <div class="join-url-row">
+        <input class="join-url" readonly :value="joinUrl" @focus="($event.target as HTMLInputElement).select()" />
+        <button class="btn-primary copy-btn" @click="copyJoinUrl">{{ copied ? '已复制' : '复制' }}</button>
+      </div>
       <label class="laser-opt">
         <input type="checkbox" v-model="state.laserAllowed" />
         允许显示光路（悬停家时查看）
@@ -116,7 +156,7 @@ function cancel() {
     </div>
 
     <div v-else class="panel">
-      <p class="panel-label">输入 4 位房间号</p>
+      <p class="panel-label">{{ busy ? `正在加入房间 ${joinCode}…` : '输入 4 位房间号' }}</p>
       <input
         v-model="joinCode"
         class="code-input"
@@ -267,6 +307,28 @@ function cancel() {
   padding-left: 14px;
   color: #2f6fed;
   font-family: 'Courier New', monospace;
+}
+.join-url-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+}
+.join-url {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  font-size: 13px;
+  font-family: 'Courier New', monospace;
+  color: #5c5340;
+  background: #fffdf6;
+  border: 2px dashed #b8ab8c;
+  border-radius: 8px;
+  outline: none;
+}
+.copy-btn {
+  flex-shrink: 0;
+  min-width: 64px;
 }
 .waiting {
   margin: 0;
