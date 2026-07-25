@@ -60,6 +60,21 @@ async function create() {
   }
 }
 
+/** 建房后切换信令通道：按新通道重建房间（房间号/链接随之更新） */
+async function onSigChange(e: Event) {
+  sig.value = (e.target as HTMLSelectElement).value as Signaling
+  if (view.value !== 'created') return
+  busy.value = true
+  error.value = ''
+  try {
+    code.value = await netCreate(count.value, sig.value)
+  } catch (err) {
+    error.value = (err as Error).message
+  } finally {
+    busy.value = false
+  }
+}
+
 async function join() {
   if (!joinCode.value.trim()) return
   busy.value = true
@@ -112,16 +127,6 @@ onMounted(() => {
           {{ n }}
         </button>
       </div>
-      <div class="count-ctl">
-        信令
-        <button class="count-btn sig-btn" :class="{ active: sig === 'nostr' }" @click="sig = 'nostr'">
-          Nostr
-        </button>
-        <button class="count-btn sig-btn" :class="{ active: sig === 'mqtt' }" @click="sig = 'mqtt'">
-          MQTT
-        </button>
-        <span class="sig-hint">连不上时换另一种试试</span>
-      </div>
       <div class="cards">
         <button class="card" @click="local">
           <span class="card-title">单机对战</span>
@@ -141,9 +146,7 @@ onMounted(() => {
     <div v-else-if="view === 'created'" class="panel">
       <div class="panel-head">
         <h2 class="panel-title">房间已创建</h2>
-        <p class="panel-label">
-          把房间号或链接发给朋友，打开即可加入（{{ count }} 人局 · {{ sig === 'mqtt' ? 'MQTT' : 'Nostr' }} 信令）
-        </p>
+        <p class="panel-label">把房间号或链接发给朋友，打开即可加入（{{ count }} 人局）</p>
       </div>
 
       <div class="room-code-wrap">
@@ -169,6 +172,14 @@ onMounted(() => {
             @change="clampSize"
           />
           × {{ state.size }} 格
+        </label>
+        <label class="laser-opt">
+          信令
+          <select class="sig-select" :value="sig" :disabled="busy" @change="onSigChange">
+            <option value="nostr">Nostr</option>
+            <option value="mqtt">MQTT</option>
+          </select>
+          <span class="sig-hint">朋友连不上时换另一种，房间号会更新</span>
         </label>
       </div>
 
@@ -262,10 +273,19 @@ onMounted(() => {
   border-color: #1e4fb8;
   color: #fff;
 }
-.sig-btn {
-  width: auto;
-  padding: 0 12px;
-  font-size: 13px;
+.sig-select {
+  padding: 4px 8px;
+  font-size: 14px;
+  font-family: inherit;
+  background: #fffdf6;
+  border: 2px solid #3d3627;
+  border-radius: 8px;
+  outline: none;
+  color: #35301f;
+  cursor: pointer;
+}
+.sig-select:focus {
+  border-color: #2f6fed;
 }
 .sig-hint {
   font-size: 12px;
