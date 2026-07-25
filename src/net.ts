@@ -89,20 +89,48 @@ interface NetRecord {
   seats?: Record<string, Color>
 }
 
-function loadNet(): NetRecord | null {
+// 身份档案存两份：sessionStorage（标签页私有，同标签页刷新保留、不同标签页隔离）为主，
+// localStorage 仅作浏览器整个重启后的兜底。
+// 关键场景：同机两个标签页共享 localStorage——若身份只存 localStorage，
+// 加入方会读到房主标签页的 token，被房主误当成「房主重连」而永远开不了局。
+/** 可用的 Web Storage（Node 测试环境没有这两个全局量，返回空数组整体跳过） */
+const storages = (): Storage[] => {
   try {
-    const raw = localStorage.getItem(NET_KEY)
-    return raw ? (JSON.parse(raw) as NetRecord) : null
+    return [sessionStorage, localStorage]
   } catch {
-    return null
+    return []
   }
 }
 
+function loadNet(): NetRecord | null {
+  for (const store of storages()) {
+    try {
+      const raw = store.getItem(NET_KEY)
+      if (raw) return JSON.parse(raw) as NetRecord
+    } catch {
+      // 读不出来就尝试下一个存储
+    }
+  }
+  return null
+}
+
 function saveNet(rec: NetRecord) {
+  const stores = storages()
   try {
-    localStorage.setItem(NET_KEY, JSON.stringify(rec))
+    stores[0]?.setItem(NET_KEY, JSON.stringify(rec))
   } catch {
     // 隐私模式等写不进去时静默忽略
+  }
+  try {
+    // 兜底存档：客人档案不覆盖本地已有的其它房间的房主档案
+    // （同机 A 标签页是房主、B 标签页是客人时，保住 A 的重启恢复能力）
+    const raw = stores[1]?.getItem(NET_KEY)
+    const prev = raw ? (JSON.parse(raw) as NetRecord) : null
+    if (!prev || prev.code === rec.code || rec.host) {
+      stores[1]?.setItem(NET_KEY, JSON.stringify(rec))
+    }
+  } catch {
+    // 同上
   }
 }
 
@@ -181,6 +209,14 @@ function sendHello() {
 
 function hostOnHello(msg: Extract<Msg, { t: 'hello' }>, peerId: string) {
   if (!isHost) return
+  // 对方 token 与房主自己相同：只可能是同机另一标签页读到了本机档案，
+  // 绝不能当成「自己重连」（会错乱座位、永远开不了局），明确报错
+  if (msg.token === token) {
+    return send(
+      { t: 'err', msg: '身份冲突：本机另一个标签页已是房主，请刷新本页面后再加入' },
+      peerId,
+    )
+  }
   let color = seats.get(msg.token)
   const rejoin = color !== undefined
   if (!color) {
@@ -335,12 +371,15 @@ function waitWelcome(): Promise<void> {
     setTimeout(() => {
       if (pending) {
         pending = null
+        // 注意先取中继数再 netClose——netClose 会把 signaling.up 清零，
+        // 之前顺序写反导致报错永远显示「连不上任何信令中继」
+        const up = signaling.up
         netClose()
         reject(
           new Error(
-            signaling.up === 0
+            up === 0
               ? '连接失败：当前网络连不上任何信令中继。请更换网络，或让房主换用另一种信令（Nostr / MQTT）'
-              : `已连上 ${signaling.up} 个信令中继，但联系不上房主：房间不存在、房主不在线，或 P2P 连接被当前网络拦截`,
+              : `已连上 ${up} 个信令中继，但联系不上房主：房间不存在、房主不在线，或 P2P 连接被当前网络拦截`,
           ),
         )
       }
@@ -353,7 +392,7 @@ export async function netCreate(playerCount: number, signaling: Signaling = 'nos
   netClose()
   isHost = true
   started = false
-  token = loadNet()?.token ?? genToken()
+  token = genToken() // 每开一局新房间就用新身份，杜绝与本地历史档案撞 token
   const code = genCode(signaling)
   state.players = seatColors(playerCount)
   state.myColor = state.players[0]
@@ -377,7 +416,10 @@ export async function netJoin(code: string): Promise<void> {
   started = false
   welcomed = false
   wantColor = null
-  token = loadNet()?.token ?? genToken()
+  // 只有在「以客人身份重进同一个房间」（刷新重连）时才复用旧 token；
+  // 否则必须换新——否则同机另一标签页是房主时，会因 token 相同被当成房主重连
+  const rec = loadNet()
+  token = rec && !rec.host && rec.code === normalized ? rec.token : genToken()
   state.roomCode = normalized
   await openRoom(state.roomCode)
   await waitWelcome()
@@ -387,7 +429,7 @@ export async function netJoin(code: string): Promise<void> {
 export async function netRejoin(code: string, color: Color, playerCount: number): Promise<void> {
   netClose()
   const rec = loadNet()
-  token = rec?.token ?? genToken()
+  token = rec && rec.code === code.trim() ? rec.token : genToken()
   wantColor = color
   started = true
   state.roomCode = code.trim()

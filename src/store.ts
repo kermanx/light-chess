@@ -337,27 +337,43 @@ export function applySnapshot(s: Snapshot, preserveIdentity = false) {
 
 const SAVE_KEY = 'light-chess:save'
 
-export function loadSave(): Snapshot | null {
+/** 可用的 Web Storage（Node 测试环境没有这两个全局量，返回空数组整体跳过持久化） */
+const storages = (): Storage[] => {
   try {
-    const raw = localStorage.getItem(SAVE_KEY)
-    if (!raw) return null
-    const s = JSON.parse(raw) as Snapshot
-    if (s.v !== 1 || !s.phase || s.phase === 'lobby') return null
-    return s
+    return [sessionStorage, localStorage]
   } catch {
-    return null
+    return []
   }
 }
 
-// 任何状态变化后自动落盘；回到大厅则清除存档
+export function loadSave(): Snapshot | null {
+  // sessionStorage（标签页私有，刷新保留）优先；localStorage 仅作浏览器重启后的兜底。
+  // 同机双标签页共享 localStorage，若只读 localStorage 会拿到对方标签页的对局。
+  for (const store of storages()) {
+    try {
+      const raw = store.getItem(SAVE_KEY)
+      if (!raw) continue
+      const s = JSON.parse(raw) as Snapshot
+      if (s.v !== 1 || !s.phase || s.phase === 'lobby') continue
+      return s
+    } catch {
+      // 读不出来就尝试下一个存储
+    }
+  }
+  return null
+}
+
+// 任何状态变化后自动落盘（sessionStorage + localStorage 双写）；回到大厅则清除存档
 watch(
   state,
   () => {
-    try {
-      if (state.phase === 'lobby') localStorage.removeItem(SAVE_KEY)
-      else localStorage.setItem(SAVE_KEY, JSON.stringify(serialize()))
-    } catch {
-      // 隐私模式等写不进去时静默忽略
+    for (const store of storages()) {
+      try {
+        if (state.phase === 'lobby') store.removeItem(SAVE_KEY)
+        else store.setItem(SAVE_KEY, JSON.stringify(serialize()))
+      } catch {
+        // 隐私模式等写不进去时静默忽略
+      }
     }
   },
   { deep: true },
