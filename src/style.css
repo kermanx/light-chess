@@ -1,0 +1,89 @@
+:root {
+  color-scheme: light;
+  font-family:
+    'Kaiti SC',
+    'STKaiti',
+    KaiTi,
+    'PingFang SC',
+    'Microsoft YaHei',
+    system-ui,
+    sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* 纸纤维噪点（SVG 滤镜生成的灰度噪声，半透明平铺） */
+body {
+  margin: 0;
+  color: #35301f;
+  background-color: #e9dfc7;
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='240' height='240' filter='url(%23n)' opacity='0.07'/%3E%3C/svg%3E"),
+    repeating-linear-gradient(0deg, rgba(88, 108, 138, 0.07) 0 1px, transparent 1px 27px),
+    repeating-linear-gradient(90deg, rgba(88, 108, 138, 0.07) 0 1px, transparent 1px 27px),
+    radial-gradient(ellipse at 50% 30%, rgba(255, 252, 240, 0.7), rgba(214, 199, 165, 0.55));
+}
+
+#app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 16px;
+}
+
+/* 纸张卡片：略带手抖感的边框 + 双层阴影 */
+.paper {
+  background-color: #f8f1de;
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='240' height='240' filter='url(%23n)' opacity='0.05'/%3E%3C/svg%3E"),
+    linear-gradient(155deg, rgba(255, 255, 255, 0.75), rgba(126, 104, 58, 0.08));
+  border: 2px solid #46402e;
+  border-radius: 220px 14px 240px 14px / 14px 240px 14px 220px;
+  box-shadow:
+    2px 3px 0 rgba(70, 64, 46, 0.3),
+    12px 16px 30px rgba(70, 64, 46, 0.18);
+}
+
+button {
+  font-family: inherit;
+}
+
+.btn-primary,
+.btn-plain {
+  border: 2px solid #3d3627;
+  border-radius: 120px 10px 140px 10px / 10px 140px 10px 120px;
+  padding: 8px 20px;
+  font-size: 14px;
+  cursor: pointer;
+  box-shadow: 3px 3px 0 rgba(61, 54, 39, 0.25);
+  transition:
+    transform 0.12s ease,
+    box-shadow 0.12s ease;
+}
+.btn-primary {
+  background: #2f6fed;
+  border-color: #1e4fb8;
+  color: #fff;
+}
+.btn-plain {
+  background: #f8f1de;
+  color: #35301f;
+}
+.btn-primary:hover:not(:disabled),
+.btn-plain:hover:not(:disabled) {
+  transform: translate(-1px, -1px);
+  box-shadow: 4px 4px 0 rgba(61, 54, 39, 0.25);
+}
+.btn-primary:active:not(:disabled),
+.btn-plain:active:not(:disabled) {
+  transform: translate(1px, 1px);
+  box-shadow: 1px 1px 0 rgba(61, 54, 39, 0.25);
+}
+.btn-primary:disabled,
+.btn-plain:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
