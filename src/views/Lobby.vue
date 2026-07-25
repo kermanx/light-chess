@@ -127,32 +127,45 @@ onMounted(() => {
     </div>
 
     <div v-else-if="view === 'created'" class="panel">
-      <p class="panel-label">把链接发给其他玩家，打开即可加入（{{ count }} 人局）</p>
-      <div class="room-code">{{ code }}</div>
+      <div class="panel-head">
+        <h2 class="panel-title">房间已创建</h2>
+        <p class="panel-label">把房间号或链接发给朋友，打开即可加入（{{ count }} 人局）</p>
+      </div>
+
+      <div class="room-code-wrap">
+        <span class="room-code">{{ code }}</span>
+      </div>
+
       <div class="join-url-row">
         <input class="join-url" readonly :value="joinUrl" @focus="($event.target as HTMLInputElement).select()" />
         <button class="btn-primary copy-btn" @click="copyJoinUrl">{{ copied ? '已复制' : '复制' }}</button>
       </div>
-      <label class="laser-opt">
-        <input type="checkbox" v-model="state.laserAllowed" />
-        允许显示光路（悬停家时查看）
-      </label>
-      <label class="laser-opt">
-        棋盘大小
-        <input
-          class="size-input"
-          type="number"
-          :min="SIZE_MIN"
-          :max="SIZE_MAX"
-          :value="state.size"
-          @change="clampSize"
-        />
-        × {{ state.size }}
-      </label>
+
+      <div class="settings">
+        <label class="laser-opt">
+          <input type="checkbox" v-model="state.laserAllowed" />
+          允许显示光路（悬停棋子时查看）
+        </label>
+        <label class="laser-opt">
+          棋盘
+          <input
+            class="size-input"
+            type="number"
+            :min="SIZE_MIN"
+            :max="SIZE_MAX"
+            :value="state.size"
+            @change="clampSize"
+          />
+          × {{ state.size }} 格
+        </label>
+      </div>
+
       <p class="waiting">
+        <span class="pulse"></span>
         等待玩家加入 {{ state.roomJoined }}/{{ count }}<span class="dots"><i>.</i><i>.</i><i>.</i></span>
       </p>
-      <button class="btn-plain" @click="cancel">取消</button>
+
+      <button class="btn-plain cancel-btn" @click="cancel">取消</button>
     </div>
 
     <div v-else class="panel">
@@ -287,21 +300,41 @@ onMounted(() => {
 .panel {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 16px;
+  align-items: stretch;
+  gap: 18px;
+  width: 480px;
+  max-width: calc(100vw - 48px);
   background: #fbf6ea;
   border: 2px solid #3d3627;
   border-radius: 12px;
   box-shadow: 4px 4px 0 rgba(61, 54, 39, 0.25);
-  padding: 34px 46px;
+  padding: 30px 36px 26px;
+}
+.panel-head {
+  text-align: center;
+}
+.panel > .panel-label {
+  text-align: center;
+}
+.panel-title {
+  margin: 0 0 6px;
+  font-size: 22px;
+  letter-spacing: 4px;
+  color: #35301f;
 }
 .panel-label {
   margin: 0;
   color: #8a7f68;
   font-size: 14px;
 }
+.room-code-wrap {
+  display: flex;
+  justify-content: center;
+  padding: 10px 0 14px;
+  border-bottom: 2px dashed #d8cbab;
+}
 .room-code {
-  font-size: 46px;
+  font-size: 44px;
   font-weight: 700;
   letter-spacing: 14px;
   padding-left: 14px;
@@ -310,14 +343,13 @@ onMounted(() => {
 }
 .join-url-row {
   display: flex;
-  gap: 8px;
+  gap: 10px;
   align-items: center;
-  width: 100%;
 }
 .join-url {
   flex: 1;
   min-width: 0;
-  padding: 8px 10px;
+  padding: 9px 12px;
   font-size: 13px;
   font-family: 'Courier New', monospace;
   color: #5c5340;
@@ -328,12 +360,36 @@ onMounted(() => {
 }
 .copy-btn {
   flex-shrink: 0;
-  min-width: 64px;
+  min-width: 72px;
+}
+.settings {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 16px;
+  background: #fffdf6;
+  border: 2px dashed #d8cbab;
+  border-radius: 8px;
 }
 .waiting {
-  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: 2px 0 0;
   color: #8a7f68;
   font-size: 14px;
+}
+.pulse {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #2f6fed;
+  animation: pulse 1.4s infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 0.3; transform: scale(0.85); }
+  50% { opacity: 1; transform: scale(1); }
 }
 .laser-opt {
   display: flex;
@@ -373,6 +429,7 @@ onMounted(() => {
   50% { opacity: 1; }
 }
 .code-input {
+  align-self: center;
   font-size: 30px;
   text-align: center;
   letter-spacing: 10px;
@@ -392,6 +449,11 @@ onMounted(() => {
 .row {
   display: flex;
   gap: 12px;
+  justify-content: center;
+}
+.cancel-btn {
+  align-self: center;
+  min-width: 120px;
 }
 .error {
   margin-top: 22px;

@@ -21,11 +21,24 @@ const HELLO_INTERVAL = 2000
 const JOIN_TIMEOUT = 20000
 
 /**
- * 信令中继覆盖：默认使用 trystero 内置的公共 Nostr 中继；
- * 在 localStorage 写入 light-chess:relays（逗号分隔的 ws(s) 地址）可改用自建/可达中继，
+ * 信令中继：覆盖 trystero 默认列表——默认列表按 appId 洗牌后可能恰好选中
+ * 一批在某些网络（如大陆直连/部分代理规则）下全部不可达的中继，导致永远连不上。
+ * 这里固定一份精选的高可用公共 Nostr 中继，任一可达即可完成握手。
+ * 仍可用 localStorage 的 light-chess:relays（逗号分隔 ws(s) 地址）整体覆盖，
  * 用于本地开发测试或公共中继不可达的网络环境。
  */
-const relayUrls = (): string[] | null => {
+const DEFAULT_RELAYS = [
+  'wss://relay.damus.io',
+  'wss://nos.lol',
+  'wss://nostr.mom',
+  'wss://relay.nostr.band',
+  'wss://purplerelay.com',
+  'wss://nostr.data.haus',
+  'wss://relay.snort.social',
+  'wss://nostr.wine',
+]
+
+const relayUrls = (): string[] => {
   try {
     const raw = localStorage.getItem(RELAYS_KEY)
     if (raw) {
@@ -35,7 +48,7 @@ const relayUrls = (): string[] | null => {
   } catch {
     // 忽略读取失败
   }
-  return null
+  return DEFAULT_RELAYS
 }
 
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
@@ -236,14 +249,14 @@ function handle(msg: Msg, peerId: string) {
 
 function openRoom(code: string) {
   const urls = relayUrls()
-  // 本地中继=本地开发/测试场景：把 mDNS(.local) 候选地址改写为 127.0.0.1，
-  // 解决同一台机器多个浏览器实例之间 ICE 互不可达的问题（trystero 官方测试开关）
-  const localRelay = urls?.some((u) => /^wss?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:|\/|$)/.test(u))
   room = joinRoom(
     {
       appId: APP_ID,
-      ...(urls ? { relayConfig: { urls } } : {}),
-      ...(localRelay ? { _test_only_mdnsHostFallbackToLoopback: true } : {}),
+      relayConfig: { urls },
+      // 把 mDNS(.local) 候选地址改写为 127.0.0.1（trystero 官方开关）。
+      // 在 TUN/代理（fake-ip）网络里，.local 会解析到虚拟网卡地址导致 ICE 永远失败；
+      // 改写后同机多标签页可直接 loopback 互连，跨机场景本来就不靠 host 候选（走 STUN srflx）。
+      _test_only_mdnsHostFallbackToLoopback: true,
     },
     `room-${code}`,
   )
