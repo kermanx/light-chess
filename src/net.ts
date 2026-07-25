@@ -1,7 +1,8 @@
-// 联机层：基于 trystero（WebRTC P2P，Nostr 公共中继做信令），无需任何服务器。
+// 联机层：基于 trystero（WebRTC P2P，公共中继做信令），无需任何服务器。
 // 模型：房主权威——建房者是房主，负责分配座位、判定开局、持有权威对局状态；
 // 其余消息（放置动作）在 P2P 网关中直接广播，与原来的哑转发语义一致。
-import { defaultRelayUrls, joinRoom, type MessageAction, type Room } from 'trystero'
+// 信令双通道：Nostr 或 MQTT，由房间号首位区分（1=Nostr，2=MQTT）。
+import { defaultRelayUrls as nostrRelayUrls, joinRoom as joinRoomNostr, type MessageAction, type Room } from 'trystero'
 import { seatColors, type Color } from './game'
 import {
   applyRemote,
@@ -20,14 +21,22 @@ const RELAYS_KEY = 'light-chess:relays'
 const HELLO_INTERVAL = 2000
 const JOIN_TIMEOUT = 20000
 
+/** 信令通道 */
+export type Signaling = 'nostr' | 'mqtt'
+
+/** 房间号约定：4 位数字，首位 1=Nostr、2=MQTT，后三位随机 */
+export const signalingOf = (code: string): Signaling => (code.startsWith('2') ? 'mqtt' : 'nostr')
+
+export const isValidCode = (code: string) => /^[12]\d{3}$/.test(code)
+
 /**
- * 信令中继：8 个精选高可用公共 Nostr 中继优先，其后跟上 trystero 内置的完整
- * 默认列表（约 50 个）——连接全部并行尝试，任一可达即可完成握手，
- * 为各种受限网络（大陆直连/代理规则/TUN）做最坏打算。
+ * 信令中继：Nostr 用 8 个精选高可用中继优先 + trystero 内置完整默认列表（约 50 个）；
+ * MQTT 用其内置 broker 列表（含 broker-cn.emqx.io）。连接全部并行尝试，
+ * 任一可达即可完成握手，为各种受限网络（大陆直连/代理规则/TUN）做最坏打算。
  * 仍可用 localStorage 的 light-chess:relays（逗号分隔 ws(s) 地址）整体覆盖，
  * 用于本地开发测试或公共中继不可达的网络环境。
  */
-const PREFERRED_RELAYS = [
+const PREFERRED_NOSTR_RELAYS = [
   'wss://relay.damus.io',
   'wss://nos.lol',
   'wss://nostr.mom',
@@ -38,7 +47,7 @@ const PREFERRED_RELAYS = [
   'wss://nostr.wine',
 ]
 
-const relayUrls = (): string[] => {
+const relayUrls = async (sig: Signaling): Promise<string[]> => {
   try {
     const raw = localStorage.getItem(RELAYS_KEY)
     if (raw) {
@@ -48,12 +57,15 @@ const relayUrls = (): string[] => {
   } catch {
     // 忽略读取失败
   }
+  // MQTT 策略体积较大，按需动态加载（含其默认 broker 列表，其中有 broker-cn.emqx.io）
+  if (sig === 'mqtt') return [...(await import('@trystero-p2p/mqtt')).defaultRelayUrls]
   // 去重：精选列表与默认列表可能有交集
-  return [...new Set([...PREFERRED_RELAYS, ...defaultRelayUrls])]
+  return [...new Set([...PREFERRED_NOSTR_RELAYS, ...nostrRelayUrls])]
 }
 
-const genCode = () =>
-  Array.from({ length: 4 }, () => Math.floor(Math.random() * 10)).join('')
+const genCode = (sig: Signaling) =>
+  (sig === 'mqtt' ? '2' : '1') +
+  Array.from({ length: 3 }, () => Math.floor(Math.random() * 10)).join('')
 const genToken = () =>
   Array.from(crypto.getRandomValues(new Uint8Array(9)), (b) => b.toString(36)).join('').slice(0, 12)
 
@@ -247,9 +259,11 @@ function handle(msg: Msg, peerId: string) {
   }
 }
 
-function openRoom(code: string) {
-  const urls = relayUrls()
-  room = joinRoom(
+async function openRoom(code: string) {
+  const sig = signalingOf(code)
+  const urls = await relayUrls(sig)
+  const join = sig === 'mqtt' ? (await import('@trystero-p2p/mqtt')).joinRoom : joinRoomNostr
+  room = join(
     {
       appId: APP_ID,
       relayConfig: { urls },
@@ -296,13 +310,13 @@ function waitWelcome(): Promise<void> {
   })
 }
 
-/** 创建房间，返回房间号（本方坐 0 号位） */
-export async function netCreate(playerCount: number): Promise<string> {
+/** 创建房间，返回房间号（本方坐 0 号位）；signaling 决定信令通道并编入房号首位 */
+export async function netCreate(playerCount: number, signaling: Signaling = 'nostr'): Promise<string> {
   netClose()
   isHost = true
   started = false
   token = loadNet()?.token ?? genToken()
-  const code = genCode()
+  const code = genCode(signaling)
   state.players = seatColors(playerCount)
   state.myColor = state.players[0]
   state.roomCode = code
@@ -312,20 +326,22 @@ export async function netCreate(playerCount: number): Promise<string> {
   connected = new Set([token])
   peerByToken = new Map()
   saveNet({ code, token, host: true, players: playerCount, seats: Object.fromEntries(seats) })
-  openRoom(code)
+  await openRoom(code)
   return code
 }
 
-/** 加入房间（座位由房主按加入顺序分配） */
+/** 加入房间（座位由房主按加入顺序分配；信令通道由房号首位决定） */
 export async function netJoin(code: string): Promise<void> {
   netClose()
+  const normalized = code.trim()
+  if (!isValidCode(normalized)) throw new Error('房间号无效（1 或 2 开头的 4 位数字）')
   isHost = false
   started = false
   welcomed = false
   wantColor = null
   token = loadNet()?.token ?? genToken()
-  state.roomCode = code.trim().toUpperCase()
-  openRoom(state.roomCode)
+  state.roomCode = normalized
+  await openRoom(state.roomCode)
   await waitWelcome()
 }
 
@@ -336,7 +352,7 @@ export async function netRejoin(code: string, color: Color, playerCount: number)
   token = rec?.token ?? genToken()
   wantColor = color
   started = true
-  state.roomCode = code.trim().toUpperCase()
+  state.roomCode = code.trim()
   if (rec?.host && rec.code === state.roomCode) {
     // 房主恢复：重建座位表，等其他玩家 hello 后逐个补发权威状态
     isHost = true
@@ -346,12 +362,12 @@ export async function netRejoin(code: string, color: Color, playerCount: number)
     persistSeats()
     connected = new Set([token])
     peerByToken = new Map()
-    openRoom(state.roomCode)
+    await openRoom(state.roomCode)
     return
   }
   isHost = false
   welcomed = false
-  openRoom(state.roomCode)
+  await openRoom(state.roomCode)
   await waitWelcome()
 }
 

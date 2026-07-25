@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { MAX_PLAYERS, MIN_PLAYERS } from '../game'
-import { netClose, netCreate, netJoin } from '../net'
+import { netClose, netCreate, netJoin, type Signaling } from '../net'
 import { SIZE_MAX, SIZE_MIN, startLocal, state } from '../store'
 
 const view = ref<'menu' | 'created' | 'join'>('menu')
@@ -12,6 +12,8 @@ const busy = ref(false)
 const copied = ref(false)
 /** 玩家人数（单机与创建房间共用） */
 const count = ref(MIN_PLAYERS)
+/** 联机信令通道（建房时使用；房号首位 1=Nostr 2=MQTT） */
+const sig = ref<Signaling>('nostr')
 const countOptions = Array.from({ length: MAX_PLAYERS - MIN_PLAYERS + 1 }, (_, i) => MIN_PLAYERS + i)
 
 /** 建房后生成的加入链接（其他玩家打开即可直接入座） */
@@ -49,7 +51,7 @@ async function create() {
   busy.value = true
   error.value = ''
   try {
-    code.value = await netCreate(count.value)
+    code.value = await netCreate(count.value, sig.value)
     view.value = 'created'
   } catch (e) {
     error.value = (e as Error).message
@@ -84,8 +86,8 @@ function cancel() {
 onMounted(() => {
   const param = new URLSearchParams(location.search).get('join')
   if (!param) return
-  const c = param.trim().toUpperCase()
-  if (!/^\d{4}$/.test(c)) return
+  const c = param.trim()
+  if (!/^[12]\d{3}$/.test(c)) return
   joinCode.value = c
   view.value = 'join'
   void join()
@@ -110,6 +112,16 @@ onMounted(() => {
           {{ n }}
         </button>
       </div>
+      <div class="count-ctl">
+        信令
+        <button class="count-btn sig-btn" :class="{ active: sig === 'nostr' }" @click="sig = 'nostr'">
+          Nostr
+        </button>
+        <button class="count-btn sig-btn" :class="{ active: sig === 'mqtt' }" @click="sig = 'mqtt'">
+          MQTT
+        </button>
+        <span class="sig-hint">连不上时换另一种试试</span>
+      </div>
       <div class="cards">
         <button class="card" @click="local">
           <span class="card-title">单机对战</span>
@@ -129,13 +141,15 @@ onMounted(() => {
     <div v-else-if="view === 'created'" class="panel">
       <div class="panel-head">
         <h2 class="panel-title">房间已创建</h2>
-        <p class="panel-label">把房间号或链接发给朋友，打开即可加入（{{ count }} 人局）</p>
+        <p class="panel-label">
+          把房间号或链接发给朋友，打开即可加入（{{ count }} 人局 · {{ sig === 'mqtt' ? 'MQTT' : 'Nostr' }} 信令）
+        </p>
       </div>
 
       <div class="room-code-wrap">
         <span class="room-code-box">
           <span class="room-code">{{ code }}</span>
-          <button class="copy-link" @click="copyJoinUrl">{{ copied ? '已复制' : '复制链接' }}</button>
+          <button class="btn-primary copy-link" @click="copyJoinUrl">{{ copied ? '已复制' : '复制链接' }}</button>
         </span>
       </div>
 
@@ -167,12 +181,15 @@ onMounted(() => {
     </div>
 
     <div v-else class="panel">
-      <p class="panel-label">{{ busy ? `正在加入房间 ${joinCode}…` : '输入 4 位房间号' }}</p>
+      <p class="panel-label">
+        {{ busy ? `正在加入房间 ${joinCode}…` : '输入 4 位房间号（首位区分信令通道）' }}
+      </p>
       <input
         v-model="joinCode"
         class="code-input"
         maxlength="4"
-        placeholder="如 4839"
+        inputmode="numeric"
+        placeholder="如 1839"
         @keyup.enter="join"
       />
       <div class="row">
@@ -244,6 +261,15 @@ onMounted(() => {
   background: #2f6fed;
   border-color: #1e4fb8;
   color: #fff;
+}
+.sig-btn {
+  width: auto;
+  padding: 0 12px;
+  font-size: 13px;
+}
+.sig-hint {
+  font-size: 12px;
+  color: #b0a488;
 }
 .card {
   width: 180px;
@@ -345,20 +371,22 @@ onMounted(() => {
 .copy-link {
   position: absolute;
   left: calc(100% + 14px);
-  top: 50%;
-  transform: translateY(-50%);
+  bottom: 10px;
   white-space: nowrap;
-  padding: 0;
-  background: none;
-  border: none;
-  font-size: 14px;
-  color: #2f6fed;
-  text-decoration: underline;
-  text-underline-offset: 3px;
-  cursor: pointer;
+  padding: 4px 12px;
+  font-size: 13px;
 }
-.copy-link:hover {
-  color: #1e4fb8;
+/* 窄屏：复制按钮换到房间号下一行 */
+@media (max-width: 520px) {
+  .room-code-box {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+  }
+  .copy-link {
+    position: static;
+  }
 }
 .settings {
   display: flex;
