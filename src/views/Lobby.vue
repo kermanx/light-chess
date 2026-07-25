@@ -85,7 +85,7 @@ onMounted(() => {
   const param = new URLSearchParams(location.search).get('join')
   if (!param) return
   const c = param.trim().toUpperCase()
-  if (!/^[A-Z2-9]{4}$/.test(c)) return
+  if (!/^\d{4}$/.test(c)) return
   joinCode.value = c
   view.value = 'join'
   void join()
@@ -133,12 +133,10 @@ onMounted(() => {
       </div>
 
       <div class="room-code-wrap">
-        <span class="room-code">{{ code }}</span>
-      </div>
-
-      <div class="join-url-row">
-        <input class="join-url" readonly :value="joinUrl" @focus="($event.target as HTMLInputElement).select()" />
-        <button class="btn-primary copy-btn" @click="copyJoinUrl">{{ copied ? '已复制' : '复制' }}</button>
+        <span class="room-code-box">
+          <span class="room-code">{{ code }}</span>
+          <button class="copy-link" @click="copyJoinUrl">{{ copied ? '已复制' : '复制链接' }}</button>
+        </span>
       </div>
 
       <div class="settings">
@@ -174,7 +172,7 @@ onMounted(() => {
         v-model="joinCode"
         class="code-input"
         maxlength="4"
-        placeholder="如 A3K9"
+        placeholder="如 4839"
         @keyup.enter="join"
       />
       <div class="row">
@@ -341,26 +339,26 @@ onMounted(() => {
   color: #2f6fed;
   font-family: 'Courier New', monospace;
 }
-.join-url-row {
-  display: flex;
-  gap: 10px;
-  align-items: center;
+.room-code-box {
+  position: relative;
 }
-.join-url {
-  flex: 1;
-  min-width: 0;
-  padding: 9px 12px;
-  font-size: 13px;
-  font-family: 'Courier New', monospace;
-  color: #5c5340;
-  background: #fffdf6;
-  border: 2px dashed #b8ab8c;
-  border-radius: 8px;
-  outline: none;
+.copy-link {
+  position: absolute;
+  left: calc(100% + 14px);
+  top: 50%;
+  transform: translateY(-50%);
+  white-space: nowrap;
+  padding: 0;
+  background: none;
+  border: none;
+  font-size: 14px;
+  color: #2f6fed;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
 }
-.copy-btn {
-  flex-shrink: 0;
-  min-width: 72px;
+.copy-link:hover {
+  color: #1e4fb8;
 }
 .settings {
   display: flex;

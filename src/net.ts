@@ -52,9 +52,8 @@ const relayUrls = (): string[] => {
   return [...new Set([...PREFERRED_RELAYS, ...defaultRelayUrls])]
 }
 
-const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 const genCode = () =>
-  Array.from({ length: 4 }, () => CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)]).join('')
+  Array.from({ length: 4 }, () => Math.floor(Math.random() * 10)).join('')
 const genToken = () =>
   Array.from(crypto.getRandomValues(new Uint8Array(9)), (b) => b.toString(36)).join('').slice(0, 12)
 
