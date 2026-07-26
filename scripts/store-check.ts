@@ -36,6 +36,19 @@ dispatch({ kind: 'edge', color: 'red', id: 'h:20:20' })
 dispatch({ kind: 'edge', color: 'blue', id: 'v:4:0' }) // 出口格左边 → 边框补顶边，隔开
 assert(!state.edges.has('v:4:0'), '边界口袋第二面（围死）被 dispatch 拒绝')
 
+// 场景 B2：最外圈格子的出口不能朝向棋盘外（否则激光出界即消失，且家无法被命中）
+startLocal()
+dispatch({ kind: 'setup', color: 'blue', home: { x: 0, y: 5, dir: 2 } }) // 左边缘，出口朝左出界
+assert(!state.homes.blue, '左边缘的家出口朝棋盘外被拒绝')
+dispatch({ kind: 'setup', color: 'blue', home: { x: 0, y: 0, dir: 3 } }) // 角落，出口朝上出界
+assert(!state.homes.blue, '角落的家出口朝棋盘外被拒绝')
+dispatch({ kind: 'setup', color: 'blue', home: { x: 0, y: 5, dir: 0 } }) // 左边缘，出口朝右（向内）
+assert(state.homes.blue?.dir === 0, '边缘的家出口朝内允许')
+dispatch({ kind: 'setup', color: 'red', home: { x: 35, y: 35, dir: 0 } }) // 右下角，出口朝右出界
+assert(!state.homes.red, '右下边缘的家出口朝棋盘外被拒绝')
+dispatch({ kind: 'setup', color: 'red', home: { x: 35, y: 35, dir: 2 } }) // 改为朝内
+assert(state.phase === 'play', '红方改为朝内出口后布置完成')
+
 // 场景 C：同色大环——蓝镜围一圈 3x3 区域把蓝家包进去，最后一面必须被拒
 startLocal()
 dispatch({ kind: 'setup', color: 'blue', home: { x: 10, y: 12, dir: 0 } })

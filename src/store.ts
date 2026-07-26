@@ -2,6 +2,8 @@ import { computed, reactive, watch } from 'vue'
 import {
   createsEnclosure,
   DEFAULT_SIZE,
+  DX,
+  DY,
   edgeOf,
   seatColors,
   simulate,
@@ -80,6 +82,16 @@ export const isPortEdge = (id: string) =>
 export const isValidHomeCell = (x: number, y: number, _color: Color) => {
   if (isHomeCell(x, y)) return false
   return !Object.values(state.homes).some((h) => Math.max(Math.abs(h.x - x), Math.abs(h.y - y)) < 2)
+}
+
+/**
+ * 出口合法性：不能朝向棋盘外（家在最外圈且出口贴边）。
+ * 否则激光一出家门就消失，且敌方激光也无法从棋盘外进入该出口——这家永远打不死。
+ */
+export const isValidExit = (x: number, y: number, dir: Dir) => {
+  const nx = x + DX[dir]
+  const ny = y + DY[dir]
+  return nx >= 0 && ny >= 0 && nx < state.size && ny < state.size
 }
 
 /** 存活玩家的家（出局者的家不再参与围死判定） */
@@ -188,7 +200,7 @@ function validate(a: Action, local: boolean): boolean {
   if (a.kind === 'setup') {
     if (state.phase !== 'setup' || state.homes[a.color]) return false
     if (!state.players.includes(a.color)) return false
-    return isValidHomeCell(a.home.x, a.home.y, a.color)
+    return isValidHomeCell(a.home.x, a.home.y, a.color) && isValidExit(a.home.x, a.home.y, a.home.dir)
   }
   if (state.phase !== 'play' || a.color !== state.current) return false
   if (state.dead.includes(a.color)) return false // 出局者不能操作

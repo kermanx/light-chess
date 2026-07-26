@@ -63,8 +63,8 @@ export interface SimResult {
   hitPath: Pt[] | null
 }
 
-const DX = [1, 0, -1, 0]
-const DY = [0, 1, 0, -1]
+export const DX = [1, 0, -1, 0]
+export const DY = [0, 1, 0, -1]
 
 const opp = (d: Dir): Dir => (((d + 2) % 4) as Dir)
 

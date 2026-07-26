@@ -18,6 +18,7 @@ import {
   hostColor,
   isHomeCell,
   isPortEdge,
+  isValidExit,
   isValidHomeCell,
   setupColor,
   SIZE_MAX,
@@ -141,11 +142,21 @@ function exitClick(ev: MouseEvent) {
   if (!canAct.value) return
   const h = pendingHome.value
   const dir = dirFromEvent(ev)
-  if (!h || dir === null) return
+  // 最外圈格子的出口不能朝向棋盘外（家会无法被命中），该方向不可选
+  if (!h || dir === null || !isValidExit(h.x, h.y, dir)) return
   dispatch({ kind: 'setup', color: setupColor.value, home: { x: h.x, y: h.y, dir } })
   pendingHome.value = null
   hoverExitDir.value = null
 }
+
+/** 待选家的合法出口方向（最外圈格子排除朝向棋盘外的方向） */
+const exitDirs = computed<Dir[]>(() => {
+  const h = pendingHome.value
+  return h ? DIRS.filter((d) => isValidExit(h.x, h.y, d)) : []
+})
+
+/** 待选家在最外圈（存在被禁用的出口方向）时给出提示 */
+const edgeExitHint = computed(() => pendingHome.value !== null && exitDirs.value.length < DIRS.length)
 
 /** 悬停方向的大箭头（从家中心连一条杆到出口边） */
 function exitArrow(dir: Dir) {
@@ -161,7 +172,11 @@ function exitArrow(dir: Dir) {
     points: `${tip.x},${tip.y} ${b1.x},${b1.y} ${b2.x},${b2.y}`,
   }
 }
-const exitPreview = computed(() => (hoverExitDir.value !== null && pendingHome.value ? exitArrow(hoverExitDir.value) : null))
+const exitPreview = computed(() =>
+  hoverExitDir.value !== null && pendingHome.value && exitDirs.value.includes(hoverExitDir.value)
+    ? exitArrow(hoverExitDir.value)
+    : null,
+)
 
 // ---------- 交互 ----------
 function cellClick(x: number, y: number, backslash: boolean) {
@@ -188,7 +203,7 @@ function edgeClick(id: string) {
     const h = pendingHome.value
     if (!h) return
     const dir = DIRS.find((d) => edgeOf(h.x, h.y, d) === id)
-    if (dir === undefined) return
+    if (dir === undefined || !isValidExit(h.x, h.y, dir)) return
     dispatch({ kind: 'setup', color: setupColor.value, home: { x: h.x, y: h.y, dir } })
     pendingHome.value = null
     return
@@ -310,11 +325,19 @@ const statusText = computed(() => {
   if (state.phase === 'setup') {
     if (state.mode === 'online') {
       if (!state.homes[state.myColor!])
-        return pendingHome.value ? '移动鼠标选择激光出口方向，点击确认' : '轮到你布置：点击一个格子作为家'
+        return pendingHome.value
+          ? edgeExitHint.value
+            ? '边缘格子的出口不能朝向棋盘外，换个方向'
+            : '移动鼠标选择激光出口方向，点击确认'
+          : '轮到你布置：点击一个格子作为家'
       return '等待其他玩家布置…'
     }
     const p = name(setupColor.value)
-    return pendingHome.value ? `${p}：移动鼠标选择激光出口方向，点击确认` : `${p}：点击一个格子作为家`
+    return pendingHome.value
+      ? edgeExitHint.value
+        ? `${p}：边缘格子的出口不能朝向棋盘外，换个方向`
+        : `${p}：移动鼠标选择激光出口方向，点击确认`
+      : `${p}：点击一个格子作为家`
   }
   if (state.mode === 'online')
     return state.current === state.myColor ? '你的回合：放置一面镜子' : `等待${name(state.current)}放置镜子…`
@@ -400,7 +423,7 @@ const statusText = computed(() => {
           <!-- 未悬停时四个候选方向呼吸提示；悬停时只突出当前方向 -->
           <template v-if="!exitPreview">
             <polygon
-              v-for="d in DIRS"
+              v-for="d in exitDirs"
               :key="`exit${d}`"
               :points="arrowAt(pendingHome.x, pendingHome.y, d)"
               :fill="COLORS[setupColor]"
