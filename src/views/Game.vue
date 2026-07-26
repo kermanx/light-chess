@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import {
   edgeMid,
   edgeOf,
@@ -197,7 +197,7 @@ function cellClick(x: number, y: number, backslash: boolean) {
     return
   }
   if (state.phase !== 'play') return
-  dispatch({ kind: 'diag', color: setupOrCurrent(), x, y, ori: backslash ? '\\' : '/' })
+  dispatch({ kind: 'diag', color: setupOrCurrent(), x, y, ori: backslash !== shiftHeld.value ? '\\' : '/' })
 }
 
 function edgeClick(id: string) {
@@ -233,10 +233,16 @@ function restart() {
 
 // ---------- 撤回一步 ----------
 
-/** 撤回是否开放：单机始终开放；联机由房主设置（开放后人人可撤） */
+/** 撤回是否开放：单机始终开放；联机由房主设置 */
 const undoAvailable = computed(() => state.mode === 'local' || state.allowUndo)
 const canUndoNow = computed(
-  () => undoAvailable.value && undoDepth.value > 0 && (state.phase === 'play' || state.phase === 'over') && !state.peerLeft,
+  () =>
+    undoAvailable.value &&
+    undoDepth.value > 0 &&
+    (state.phase === 'play' || state.phase === 'over') &&
+    !state.peerLeft &&
+    // 联机只能撤回自己刚下的那手
+    (state.mode === 'local' || state.lastMove?.color === state.myColor),
 )
 
 function undo() {
@@ -248,6 +254,25 @@ function undo() {
 function toggleUndo(e: Event) {
   dispatch({ kind: 'undo-setting', color: hostColor.value, allow: (e.target as HTMLInputElement).checked })
 }
+
+// ---------- Shift 反向斜镜 ----------
+
+/** 按住 Shift 时斜镜方向取反（左键放「\」、右键放「/」），预览同步翻转 */
+const shiftHeld = ref(false)
+const onKey = (e: KeyboardEvent) => {
+  if (e.key === 'Shift') shiftHeld.value = e.type === 'keydown'
+}
+const onBlur = () => (shiftHeld.value = false)
+onMounted(() => {
+  window.addEventListener('keydown', onKey)
+  window.addEventListener('keyup', onKey)
+  window.addEventListener('blur', onBlur)
+})
+onUnmounted(() => {
+  window.removeEventListener('keydown', onKey)
+  window.removeEventListener('keyup', onKey)
+  window.removeEventListener('blur', onBlur)
+})
 
 // ---------- 等待时的提醒动画 ----------
 
@@ -373,7 +398,7 @@ const statusText = computed(() => {
   }
   if (state.mode === 'online')
     return state.current === state.myColor ? '你的回合：放置一面镜子' : `等待${name(state.current)}放置镜子…`
-  return `${name(state.current)}回合：点击网格边放边镜；左键格子放「/」斜镜，右键放「\\」斜镜`
+  return `${name(state.current)}回合：点击网格边放边镜；左键格子放「/」斜镜，右键放「\\」斜镜（按住 Shift 反向）`
 })
 </script>
 
@@ -567,7 +592,7 @@ const statusText = computed(() => {
         </template>
         <line
           v-if="ghostCell"
-          v-bind="diagLine(ghostCell.x, ghostCell.y, '/')"
+          v-bind="diagLine(ghostCell.x, ghostCell.y, shiftHeld ? '\\' : '/')"
           :stroke="COLORS[previewColor]"
           stroke-opacity="0.45"
           stroke-width="2.4"
@@ -693,7 +718,7 @@ const statusText = computed(() => {
     <details class="note help-note" open>
       <summary>规则</summary>
       <p>每位玩家各选一个格子为家并指定激光出口，家中其余 3 条边自动放镜（普通镜子，己方激光仍可穿过）。</p>
-      <p>之后按座位顺序轮流放置镜子（每回合一个，不可移除）：点击网格边放边镜，左键格子放「/」斜镜，右键格子放「\」斜镜。</p>
+      <p>之后按座位顺序轮流放置镜子（每回合一个，不可移除）：点击网格边放边镜，左键格子放「/」斜镜，右键格子放「\」斜镜，按住 Shift 则斜镜方向取反。</p>
       <p>己方镜子对己方激光是半反射（既穿过又反射），其他颜色的镜子必须反射。命中不立即生效：在每位玩家回合开头结算其激光，被击中的玩家出局（家变为 ✕，不能再操作）；双人局被击中即判负，多人局只剩一人时其获胜。</p>
     </details>
     </aside>

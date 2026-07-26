@@ -122,6 +122,13 @@ for (const [tag, p] of [['A', A], ['B', B]]) {
 }
 console.log('ok: 非房主撤回一步，双端局面一致')
 
+// 只能撤回自己刚下的那手：此时最后一手是 A 的 h:10:10
+if (!(await B.locator('button', { hasText: '撤回一步' }).isDisabled()))
+  throw new Error('最后一手属于 A，B 的撤回按钮应禁用')
+if (await A.locator('button', { hasText: '撤回一步' }).isDisabled())
+  throw new Error('最后一手属于 A，A 的撤回按钮应可用')
+console.log('ok: 只能撤回自己刚下的那手（按钮禁用/可用正确）')
+
 // ===== 单机：撤回按钮始终可用 =====
 const C = await mk('C')
 await C.getByText('单机对战').click()
@@ -137,6 +144,41 @@ await C.locator('button', { hasText: '撤回一步' }).click()
 await C.waitForTimeout(300)
 if ((await C.locator('svg line[stroke="#2f6fed"]').count()) !== 3) throw new Error('单机：撤回后蓝镜应为 3 条（家的自动镜）')
 console.log('ok: 单机撤回一步可用')
+
+// ===== 单机：Shift 反向斜镜 =====
+const ghostLine = C.locator('svg line[stroke-opacity="0.45"]')
+const ghostY = async () => [
+  Number(await ghostLine.getAttribute('y1')),
+  Number(await ghostLine.getAttribute('y2')),
+]
+await dc.hoverU(...cell(15, 15))
+await waitFor(async () => (await ghostLine.count()) === 1, '斜镜预览出现')
+let [gy1, gy2] = await ghostY()
+if (!(gy1 > gy2)) throw new Error('默认斜镜预览应为「/」（y1 > y2）')
+await C.keyboard.down('Shift')
+await C.waitForTimeout(250)
+;[gy1, gy2] = await ghostY()
+if (!(gy1 < gy2)) throw new Error('按住 Shift 斜镜预览应翻转为「\\」（y1 < y2）')
+console.log('ok: Shift 按住时斜镜预览反向')
+// Shift+左键：放下的是「\」——(15,15) → x1=u(15)=456, y1=u(15)=456
+await dc.clickU(...cell(15, 15))
+await waitFor(
+  async () => (await C.locator('svg line[stroke-opacity="0.92"][x1="456"][y1="456"]').count()) === 1,
+  'Shift+左键放「\\」',
+)
+console.log('ok: Shift+左键放下「\\」斜镜')
+await C.keyboard.up('Shift')
+// 松开 Shift：预览恢复「/」，左键放「/」——(18,15) → x1=u(18)=540, y1=u(16)=484
+await dc.hoverU(...cell(18, 15))
+await C.waitForTimeout(250)
+;[gy1, gy2] = await ghostY()
+if (!(gy1 > gy2)) throw new Error('松开 Shift 斜镜预览应恢复为「/」')
+await dc.clickU(...cell(18, 15))
+await waitFor(
+  async () => (await C.locator('svg line[stroke-opacity="0.92"][x1="540"][y1="484"]').count()) === 1,
+  '左键放「/」',
+)
+console.log('ok: 松开 Shift 后左键放下「/」斜镜')
 
 await browser.close()
 console.log('撤回/预览/权限校验全部通过')

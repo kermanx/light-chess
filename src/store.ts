@@ -18,8 +18,11 @@ import {
 
 export type Phase = 'lobby' | 'setup' | 'play' | 'over'
 
-/** 上一步放置的镜子（家的自动镜不算），用于 UI 加粗高亮 */
-export type LastMove = { kind: 'edge'; id: string } | { kind: 'diag'; key: string } | null
+/** 上一步放置的镜子（家的自动镜不算），用于 UI 加粗高亮与撤回权限判定 */
+export type LastMove =
+  | { kind: 'edge'; id: string; color: Color }
+  | { kind: 'diag'; key: string; color: Color }
+  | null
 
 /** 撤回一步要恢复的局面帧（放镜前的完整局面） */
 export interface UndoFrame {
@@ -268,8 +271,8 @@ function validate(a: Action, local: boolean): boolean {
   }
   if (a.kind === 'undo') {
     if (state.phase !== 'play' && state.phase !== 'over') return false
-    // 单机始终允许；联机需房主开启「允许撤回一步」（开启后人人可撤）
-    return state.mode === 'local' || state.allowUndo
+    // 单机同屏始终允许；联机需房主开启「允许撤回一步」，且只能撤回自己刚下的那手
+    return state.mode === 'local' || (state.allowUndo && state.lastMove?.color === a.color)
   }
   if (a.kind === 'board-size') {
     // 仅布置阶段可调；联机只有房主可调，单机任意
@@ -342,10 +345,10 @@ function apply(a: Action) {
   pushFrame()
   if (a.kind === 'edge') {
     state.edges.set(a.id, { color: a.color })
-    state.lastMove = { kind: 'edge', id: a.id }
+    state.lastMove = { kind: 'edge', id: a.id, color: a.color }
   } else {
     state.diags.set(`${a.x},${a.y}`, { color: a.color, ori: a.ori })
-    state.lastMove = { kind: 'diag', key: `${a.x},${a.y}` }
+    state.lastMove = { kind: 'diag', key: `${a.x},${a.y}`, color: a.color }
   }
   if (state.phase === 'play') {
     state.current = nextAlive(a.color)

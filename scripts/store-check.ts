@@ -1,5 +1,5 @@
 // store 层（dispatch 全链路）围死校验复现测试
-import { dispatch, startLocal, state, topUndoFrame, undoDepth, wouldEnclose } from '../src/store'
+import { applyRemote, dispatch, startLocal, state, topUndoFrame, undoDepth, wouldEnclose } from '../src/store'
 
 function assert(cond: boolean, msg: string) {
   if (!cond) throw new Error(`FAIL: ${msg}`)
@@ -217,5 +217,28 @@ dispatch({ kind: 'edge', color: 'blue', id: 'h:12:12' })
 dispatch({ kind: 'restart', color: 'blue' })
 assert(state.phase === 'setup' && state.edges.size === 0, '重新开始：清空局面')
 assert(undoDepth.value === 0 && state.lastMove === null, '重新开始：清空撤回历史与上一步')
+
+// 场景 H：联机撤回——需房主开启，且只能撤回自己刚下的那手
+startLocal(2)
+state.mode = 'online'
+state.myColor = 'blue'
+applyRemote({ kind: 'setup', color: 'blue', home: { x: 10, y: 12, dir: 0 } })
+applyRemote({ kind: 'setup', color: 'red', home: { x: 20, y: 16, dir: 2 } })
+assert(state.phase === 'play', '联机场景布置完成')
+dispatch({ kind: 'edge', color: 'blue', id: 'h:11:12' })
+assert(state.lastMove?.kind === 'edge' && state.lastMove.color === 'blue', '上一步记录带颜色')
+dispatch({ kind: 'undo', color: 'blue', frame: topUndoFrame()! })
+assert(state.edges.has('h:11:12'), '联机未开允许撤回：自己的那手也不能撤')
+state.allowUndo = true
+dispatch({ kind: 'undo', color: 'blue', frame: topUndoFrame()! })
+assert(!state.edges.has('h:11:12') && state.current === 'blue', '联机允许撤回：撤回自己刚下的那手')
+dispatch({ kind: 'edge', color: 'blue', id: 'h:12:12' })
+applyRemote({ kind: 'edge', color: 'red', id: 'h:20:20' })
+assert(state.lastMove?.color === 'red', '对手落子后上一步归对手')
+const depthBefore = undoDepth.value
+dispatch({ kind: 'undo', color: 'blue', frame: topUndoFrame()! })
+assert(state.edges.has('h:20:20') && undoDepth.value === depthBefore, '联机：不能撤回对手刚下的那手')
+applyRemote({ kind: 'undo', color: 'red', frame: topUndoFrame()! })
+assert(!state.edges.has('h:20:20') && state.current === 'red', '远端玩家撤回自己的那手')
 
 console.log('全部通过')
