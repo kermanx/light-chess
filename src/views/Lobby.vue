@@ -232,6 +232,10 @@ onMounted(() => {
           允许显示光路（悬停棋子时查看）
         </label>
         <label class="laser-opt">
+          <input type="checkbox" v-model="state.allowUndo" />
+          允许撤回一步（开启后所有玩家都可撤回）
+        </label>
+        <label class="laser-opt">
           棋盘
           <input
             class="size-input"

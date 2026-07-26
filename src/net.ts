@@ -246,6 +246,7 @@ function hostOnHello(msg: Extract<Msg, { t: 'hello' }>, peerId: string) {
     startOnline(state.myColor!, state.roomCode, state.players)
     send({ t: 'start', players: state.players.length })
     sendAct({ kind: 'laser-setting', color: state.players[0], allow: state.laserAllowed })
+    sendAct({ kind: 'undo-setting', color: state.players[0], allow: state.allowUndo })
     sendAct({ kind: 'board-size', color: state.players[0], size: state.size })
     return
   }

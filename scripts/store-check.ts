@@ -1,5 +1,5 @@
 // store 层（dispatch 全链路）围死校验复现测试
-import { dispatch, startLocal, state, wouldEnclose } from '../src/store'
+import { dispatch, startLocal, state, topUndoFrame, undoDepth, wouldEnclose } from '../src/store'
 
 function assert(cond: boolean, msg: string) {
   if (!cond) throw new Error(`FAIL: ${msg}`)
@@ -128,6 +128,12 @@ dispatch({ kind: 'edge', color: 'red', id: 'h:28:25' }) // 红方放弃自救
 assert(state.phase === 'over' && state.winner === 'blue', '红方行动后轮到蓝方，回合开头结算：红死蓝胜')
 assert(state.dead.includes('red'), '红方计入出局名单')
 
+// 撤回复活：撤销红方弃疗那手，局面回到击杀走廊闭合、红方待行动
+dispatch({ kind: 'undo', color: 'blue', frame: topUndoFrame()! })
+assert(state.phase === 'play' && state.winner === null && state.dead.length === 0, '对局结束后仍可撤回：红方复活')
+assert(state.current === 'red', '撤回后回到红方回合')
+assert(state.lastMove?.kind === 'diag' && state.lastMove.key === '20,16', '撤回后上一步回退到蓝方走廊镜')
+
 // 场景 F：三人局淘汰制——B 死后对局继续、轮转跳过、出局者不能操作、围死判定忽略死家
 startLocal(3)
 dispatch({ kind: 'setup', color: 'blue', home: { x: 6, y: 6, dir: 0 } })
@@ -181,5 +187,35 @@ assert(state.phase === 'play' && !state.dead.includes('yellow'), '击杀黄同�
 dispatch({ kind: 'edge', color: 'yellow', id: 'h:34:25' })
 assert(state.phase === 'over' && state.winner === 'blue', '黄死后只剩蓝方，蓝方获胜')
 assert(state.dead.includes('yellow'), '黄方计入出局名单')
+
+// 场景 G：撤回一步与上一步记录（单机始终允许撤回）
+startLocal(2)
+dispatch({ kind: 'setup', color: 'blue', home: { x: 10, y: 12, dir: 0 } })
+dispatch({ kind: 'setup', color: 'red', home: { x: 20, y: 16, dir: 2 } })
+assert(undoDepth.value === 0, '开局无可撤回')
+dispatch({ kind: 'edge', color: 'blue', id: 'h:11:12' })
+assert(state.lastMove?.kind === 'edge' && state.lastMove.id === 'h:11:12', '上一步记录：边镜')
+assert(undoDepth.value === 1, '一手后撤回深度为 1')
+dispatch({ kind: 'diag', color: 'red', x: 15, y: 15, ori: '/' })
+assert(state.lastMove?.kind === 'diag' && state.lastMove.key === '15,15', '上一步记录：斜镜')
+
+// 撤回红方这手（单机任意玩家可撤）
+dispatch({ kind: 'undo', color: 'blue', frame: topUndoFrame()! })
+assert(!state.diags.has('15,15'), '撤回一步：红方斜镜消失')
+assert(state.current === 'red', '撤回后回到红方回合')
+assert(state.lastMove?.kind === 'edge' && state.lastMove.id === 'h:11:12', '撤回后上一步回退到蓝边镜')
+assert(undoDepth.value === 1, '撤回后深度回退为 1')
+
+// 再撤回蓝方这手
+dispatch({ kind: 'undo', color: 'red', frame: topUndoFrame()! })
+assert(!state.edges.has('h:11:12'), '再撤回：蓝方边镜消失')
+assert(state.current === 'blue' && state.lastMove === null, '两手全撤完：回到蓝方且无上一步')
+assert(undoDepth.value === 0, '撤完后深度为 0')
+
+// 重新开始（带颜色参数）：清局面、清撤回历史
+dispatch({ kind: 'edge', color: 'blue', id: 'h:12:12' })
+dispatch({ kind: 'restart', color: 'blue' })
+assert(state.phase === 'setup' && state.edges.size === 0, '重新开始：清空局面')
+assert(undoDepth.value === 0 && state.lastMove === null, '重新开始：清空撤回历史与上一步')
 
 console.log('全部通过')

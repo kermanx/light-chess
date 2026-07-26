@@ -10,7 +10,6 @@ import {
   type Ori,
   type Pt,
 } from '../game'
-import { netClose } from '../net'
 import {
   board,
   canAct,
@@ -24,7 +23,8 @@ import {
   SIZE_MAX,
   SIZE_MIN,
   state,
-  toLobby,
+  topUndoFrame,
+  undoDepth,
   wouldEnclose,
 } from '../store'
 
@@ -180,7 +180,10 @@ const exitPreview = computed(() =>
 
 // ---------- 交互 ----------
 function cellClick(x: number, y: number, backslash: boolean) {
-  if (!canAct.value) return
+  if (!canAct.value) {
+    remindWait()
+    return
+  }
   if (state.phase === 'setup') {
     if (!pendingHome.value) {
       if (isValidHomeCell(x, y, setupColor.value)) pendingHome.value = { x, y }
@@ -198,7 +201,10 @@ function cellClick(x: number, y: number, backslash: boolean) {
 }
 
 function edgeClick(id: string) {
-  if (!canAct.value) return
+  if (!canAct.value) {
+    remindWait()
+    return
+  }
   if (state.phase === 'setup') {
     const h = pendingHome.value
     if (!h) return
@@ -217,15 +223,47 @@ const setupOrCurrent = () => (state.phase === 'setup' ? setupColor.value : state
 /** 选家阶段（尚未点出家）：禁用边热区，让整个格子都可点击 */
 const edgeHitEnabled = computed(() => !(state.phase === 'setup' && !pendingHome.value))
 
+/** 本机是否为房主侧（单机视为房主）：决定能否重新开始 */
+const isHostSide = computed(() => state.mode === 'local' || state.myColor === hostColor.value)
+
 function restart() {
   pendingHome.value = null
-  dispatch({ kind: 'restart' })
+  dispatch({ kind: 'restart', color: state.mode === 'online' ? state.myColor! : state.players[0] })
 }
 
-function leave() {
-  netClose()
-  toLobby()
+// ---------- 撤回一步 ----------
+
+/** 撤回是否开放：单机始终开放；联机由房主设置（开放后人人可撤） */
+const undoAvailable = computed(() => state.mode === 'local' || state.allowUndo)
+const canUndoNow = computed(
+  () => undoAvailable.value && undoDepth.value > 0 && (state.phase === 'play' || state.phase === 'over') && !state.peerLeft,
+)
+
+function undo() {
+  const frame = topUndoFrame()
+  if (!frame) return
+  dispatch({ kind: 'undo', color: state.mode === 'online' ? state.myColor! : state.current, frame })
 }
+
+function toggleUndo(e: Event) {
+  dispatch({ kind: 'undo-setting', color: hostColor.value, allow: (e.target as HTMLInputElement).checked })
+}
+
+// ---------- 等待时的提醒动画 ----------
+
+/** 递增触发状态栏提醒动画（:key 重挂载重放） */
+const nudge = ref(0)
+
+/** 对方回合点击棋盘：状态栏描边脉冲提醒「还没轮到你」 */
+function remindWait() {
+  if (state.phase !== 'play' || state.mode !== 'online' || state.peerLeft) return
+  nudge.value++
+}
+
+/** 放镜预览的颜色：联机等待时也按自己的颜色预览（筹划下一手） */
+const previewColor = computed<Color>(() =>
+  state.mode === 'online' ? state.myColor! : state.phase === 'setup' ? setupColor.value : state.current,
+)
 
 // ---------- 展示计算 ----------
 const sims = computed(() => {
@@ -274,26 +312,20 @@ const linePath = (pts: Pt[]) => pts.map((p) => `${u(p.x)},${u(p.y)}`).join(' ')
 
 const ghostEdge = computed(() => {
   const id = hoverEdge.value
-  if (!canAct.value || state.phase !== 'play' || !id || state.edges.has(id) || isPortEdge(id))
-    return null
+  // 对方回合也显示预览（仅不可点击），方便筹划下一手
+  if (state.phase !== 'play' || !id || state.edges.has(id) || isPortEdge(id)) return null
   return id
 })
 
 /** 悬停的边若放镜会把家围死：给禁止预览 */
 const ghostEdgeBad = computed(() => {
   const id = ghostEdge.value
-  return id && wouldEnclose(id, state.current) ? id : null
+  return id && wouldEnclose(id, previewColor.value) ? id : null
 })
 
 const ghostCell = computed(() => {
   const c = hoverCell.value
-  if (
-    !canAct.value ||
-    state.phase !== 'play' ||
-    !c ||
-    isHomeCell(c.x, c.y) ||
-    state.diags.has(`${c.x},${c.y}`)
-  )
+  if (state.phase !== 'play' || !c || isHomeCell(c.x, c.y) || state.diags.has(`${c.x},${c.y}`))
     return null
   return c
 })
@@ -385,25 +417,25 @@ const statusText = computed(() => {
             class="dot"
           />
 
-          <!-- 边镜 -->
+          <!-- 边镜（上一步放置的加粗一点） -->
           <line
             v-for="[id, m] in state.edges"
             :key="`e${id}`"
             v-bind="edgeLine(id)"
             :stroke="COLORS[m.color]"
-            stroke-width="2.4"
+            :stroke-width="state.lastMove?.kind === 'edge' && state.lastMove.id === id ? 3.4 : 2.4"
             stroke-opacity="0.92"
             stroke-linecap="round"
             class="no-events"
           />
 
-          <!-- 斜镜 -->
+          <!-- 斜镜（上一步放置的加粗一点） -->
           <line
             v-for="[key, g] in state.diags"
             :key="`g${key}`"
             v-bind="diagLine(+key.split(',')[0], +key.split(',')[1], g.ori)"
             :stroke="COLORS[g.color]"
-            stroke-width="2.2"
+            :stroke-width="state.lastMove?.kind === 'diag' && state.lastMove.key === key ? 3.2 : 2.2"
             stroke-opacity="0.92"
             stroke-linecap="round"
             class="no-events"
@@ -506,7 +538,7 @@ const statusText = computed(() => {
         <template v-if="ghostEdge">
           <line
             v-bind="edgeLine(ghostEdge)"
-            :stroke="ghostEdgeBad ? '#b91c1c' : COLORS[state.current]"
+            :stroke="ghostEdgeBad ? '#b91c1c' : COLORS[previewColor]"
             :stroke-opacity="ghostEdgeBad ? 0.55 : 0.45"
             stroke-width="2.6"
             stroke-linecap="round"
@@ -536,7 +568,7 @@ const statusText = computed(() => {
         <line
           v-if="ghostCell"
           v-bind="diagLine(ghostCell.x, ghostCell.y, '/')"
-          :stroke="COLORS[state.current]"
+          :stroke="COLORS[previewColor]"
           stroke-opacity="0.45"
           stroke-width="2.4"
           stroke-linecap="round"
@@ -592,12 +624,12 @@ const statusText = computed(() => {
         />
       </svg>
 
-      <div v-if="state.phase === 'over'" class="overlay">
+      <div class="overlay" v-if="state.phase === 'over'">
         <div class="overlay-card paper" :class="state.winner!">
           <div class="overlay-title">{{ name(state.winner!) }}获胜</div>
           <div class="overlay-btns">
-            <button class="btn-primary" @click="restart">再来一局</button>
-            <button class="btn-plain" @click="leave">返回大厅</button>
+            <button v-if="isHostSide" class="btn-primary" @click="restart">再来一局</button>
+            <span v-else class="wait-host">等待房主再来一局…</span>
           </div>
         </div>
       </div>
@@ -606,7 +638,7 @@ const statusText = computed(() => {
     <aside class="side">
       <h1 class="logo-sm">光镜棋</h1>
 
-      <div class="note status-note" :class="statusColor ?? ''">{{ statusText }}</div>
+      <div :key="nudge" class="note status-note" :class="[statusColor ?? '', { nudged: nudge > 0 }]">{{ statusText }}</div>
 
       <div class="note meta-note">
         <label
@@ -638,17 +670,23 @@ const statusText = computed(() => {
       </div>
 
       <div class="ctl-note note">
-      <label v-if="state.mode === 'online' && state.myColor === hostColor" class="chk">
-        <input type="checkbox" :checked="state.laserAllowed" @change="toggleLaser" />
-        允许显示光路
-      </label>
+      <template v-if="state.mode === 'online' && state.myColor === hostColor">
+        <label class="chk">
+          <input type="checkbox" :checked="state.laserAllowed" @change="toggleLaser" />
+          允许显示光路
+        </label>
+        <label class="chk">
+          <input type="checkbox" :checked="state.allowUndo" @change="toggleUndo" />
+          允许撤回一步
+        </label>
+      </template>
       <span v-else-if="state.mode === 'online'" class="laser-tag">
         光路显示：{{ state.laserAllowed ? '允许' : '禁止' }}（由房主设置）
       </span>
       <span v-else class="laser-tag">鼠标悬停在「家」上可查看光路</span>
-      <div class="btn-row">
-        <button class="btn-plain" @click="restart">重新开始</button>
-        <button class="btn-plain" @click="leave">返回大厅</button>
+      <div v-if="undoAvailable || isHostSide" class="btn-row">
+        <button v-if="undoAvailable" class="btn-plain" :disabled="!canUndoNow" @click="undo">撤回一步</button>
+        <button v-if="isHostSide" class="btn-plain" @click="restart">重新开始</button>
       </div>
     </div>
 
@@ -740,6 +778,34 @@ const statusText = computed(() => {
 .status-note.green {
   border-color: #34a05c;
   color: #2c8a4e;
+}
+/* 对方回合点击棋盘时的提醒：描边脉冲（outline 不影响布局大小） */
+.status-note.nudged {
+  outline: 2px solid transparent;
+  outline-offset: 3px;
+  animation: status-nudge 0.65s ease-out;
+}
+@keyframes status-nudge {
+  0% {
+    outline-width: 2px;
+    outline-color: transparent;
+  }
+  30% {
+    outline-width: 4px;
+    outline-color: currentColor;
+  }
+  60% {
+    outline-width: 2.5px;
+    outline-color: currentColor;
+  }
+  100% {
+    outline-width: 2px;
+    outline-color: transparent;
+  }
+}
+.wait-host {
+  font-size: 13px;
+  color: #8a7f68;
 }
 .meta-note {
   display: flex;
