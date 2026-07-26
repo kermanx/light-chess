@@ -241,8 +241,9 @@ const canUndoNow = computed(
     undoDepth.value > 0 &&
     (state.phase === 'play' || state.phase === 'over') &&
     !state.peerLeft &&
-    // 联机只能撤回自己刚下的那手
-    (state.mode === 'local' || state.lastMove?.color === state.myColor),
+    // 联机只能撤回自己刚下的那手，且不能撤到开启「允许撤回」之前的步骤
+    (state.mode === 'local' ||
+      (state.lastMove?.color === state.myColor && undoDepth.value > state.undoFloor)),
 )
 
 function undo() {
@@ -252,7 +253,9 @@ function undo() {
 }
 
 function toggleUndo(e: Event) {
-  dispatch({ kind: 'undo-setting', color: hostColor.value, allow: (e.target as HTMLInputElement).checked })
+  const allow = (e.target as HTMLInputElement).checked
+  // 开启时带上当前栈深作为底线：开启之前下的步骤不可撤
+  dispatch({ kind: 'undo-setting', color: hostColor.value, allow, floor: undoDepth.value })
 }
 
 // ---------- Shift 反向斜镜 ----------

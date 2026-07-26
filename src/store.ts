@@ -40,7 +40,7 @@ export type Action =
   | { kind: 'edge'; color: Color; id: string }
   | { kind: 'diag'; color: Color; x: number; y: number; ori: Ori }
   | { kind: 'laser-setting'; color: Color; allow: boolean }
-  | { kind: 'undo-setting'; color: Color; allow: boolean }
+  | { kind: 'undo-setting'; color: Color; allow: boolean; floor?: number }
   | { kind: 'undo'; color: Color; frame: UndoFrame }
   | { kind: 'board-size'; color: Color; size: number }
   | { kind: 'restart'; color: Color }
@@ -68,6 +68,8 @@ export const state = reactive({
   laserAllowed: false,
   /** 联机：房主是否允许撤回一步（默认禁止；单机始终允许） */
   allowUndo: false,
+  /** 可撤回的底线（历史栈深度）：开启「允许撤回」时锁定，开启之前下的步骤不可撤 */
+  undoFloor: 0,
   /** 上一步放置的镜子（用于加粗高亮；家的自动镜不算） */
   lastMove: null as LastMove,
   /** 本局会话 id（对局 URL /s/<id> 与存档对应，浏览器后退/前进恢复用） */
@@ -162,6 +164,7 @@ const pushFrame = () => {
 const clearHistory = () => {
   moveHistory.length = 0
   undoDepth.value = 0
+  state.undoFloor = 0
 }
 
 /** 栈顶帧（撤回按钮点击时随 undo 动作广播，保证各端恢复同一局面） */
@@ -271,8 +274,12 @@ function validate(a: Action, local: boolean): boolean {
   }
   if (a.kind === 'undo') {
     if (state.phase !== 'play' && state.phase !== 'over') return false
-    // 单机同屏始终允许；联机需房主开启「允许撤回一步」，且只能撤回自己刚下的那手
-    return state.mode === 'local' || (state.allowUndo && state.lastMove?.color === a.color)
+    // 单机同屏始终允许；联机需房主开启「允许撤回一步」，只能撤回自己刚下的那手，
+    // 且不能撤到开启该设置之前的步骤（undoFloor 为开启时的栈深）
+    return (
+      state.mode === 'local' ||
+      (state.allowUndo && state.lastMove?.color === a.color && undoDepth.value > state.undoFloor)
+    )
   }
   if (a.kind === 'board-size') {
     // 仅布置阶段可调；联机只有房主可调，单机任意
@@ -304,6 +311,8 @@ function apply(a: Action) {
   }
   if (a.kind === 'undo-setting') {
     state.allowUndo = a.allow
+    // 开启时把当前栈深记为底线：之前下的步骤不可撤（floor 由房主端随动作带来，各端一致）
+    state.undoFloor = a.allow ? (a.floor ?? undoDepth.value) : 0
     return
   }
   if (a.kind === 'undo') {

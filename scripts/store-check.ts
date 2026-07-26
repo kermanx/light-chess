@@ -218,7 +218,7 @@ dispatch({ kind: 'restart', color: 'blue' })
 assert(state.phase === 'setup' && state.edges.size === 0, '重新开始：清空局面')
 assert(undoDepth.value === 0 && state.lastMove === null, '重新开始：清空撤回历史与上一步')
 
-// 场景 H：联机撤回——需房主开启，且只能撤回自己刚下的那手
+// 场景 H：联机撤回——需房主开启，只能撤自己那手，且不能撤开启前的步骤
 startLocal(2)
 state.mode = 'online'
 state.myColor = 'blue'
@@ -229,10 +229,12 @@ dispatch({ kind: 'edge', color: 'blue', id: 'h:11:12' })
 assert(state.lastMove?.kind === 'edge' && state.lastMove.color === 'blue', '上一步记录带颜色')
 dispatch({ kind: 'undo', color: 'blue', frame: topUndoFrame()! })
 assert(state.edges.has('h:11:12'), '联机未开允许撤回：自己的那手也不能撤')
-state.allowUndo = true
+// 房主开启（底线 = 当前栈深 1）：开启前下的 h:11:12 不可撤
+applyRemote({ kind: 'undo-setting', color: 'blue', allow: true, floor: undoDepth.value })
+assert(state.allowUndo && state.undoFloor === 1, '开启允许撤回：底线锁定为当前栈深')
 dispatch({ kind: 'undo', color: 'blue', frame: topUndoFrame()! })
-assert(!state.edges.has('h:11:12') && state.current === 'blue', '联机允许撤回：撤回自己刚下的那手')
-dispatch({ kind: 'edge', color: 'blue', id: 'h:12:12' })
+assert(state.edges.has('h:11:12'), '开启允许撤回之前的步骤不可撤')
+// 开启后下的可以撤：红下一手，蓝不能撤红的，红自己撤
 applyRemote({ kind: 'edge', color: 'red', id: 'h:20:20' })
 assert(state.lastMove?.color === 'red', '对手落子后上一步归对手')
 const depthBefore = undoDepth.value
@@ -240,5 +242,11 @@ dispatch({ kind: 'undo', color: 'blue', frame: topUndoFrame()! })
 assert(state.edges.has('h:20:20') && undoDepth.value === depthBefore, '联机：不能撤回对手刚下的那手')
 applyRemote({ kind: 'undo', color: 'red', frame: topUndoFrame()! })
 assert(!state.edges.has('h:20:20') && state.current === 'red', '远端玩家撤回自己的那手')
+// 蓝开启后下的一手也可自己撤回，撤回后深度仍高于底线
+applyRemote({ kind: 'edge', color: 'red', id: 'h:20:20' })
+dispatch({ kind: 'edge', color: 'blue', id: 'h:12:12' })
+dispatch({ kind: 'undo', color: 'blue', frame: topUndoFrame()! })
+assert(!state.edges.has('h:12:12') && state.current === 'blue', '撤回自己开启后下的那手')
+assert(undoDepth.value === 2 && state.undoFloor === 1, '撤回到底线之上为止')
 
 console.log('全部通过')

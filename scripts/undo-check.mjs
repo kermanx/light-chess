@@ -108,26 +108,55 @@ const redAfter = await redReal(B)
 if (redAfter !== redBefore) throw new Error('等待方点击不应落子')
 console.log('ok: 等待方点击不落子，状态栏播放提醒动画')
 
-// 房主（A）在对局面板开启「允许撤回一步」→ B 出现撤回按钮
+// 房主（A）在对局面板开启「允许撤回一步」→ B 出现撤回按钮；但开启前下的步骤不可撤
 await A.locator('.ctl-note .chk', { hasText: '允许撤回一步' }).locator('input').check()
 await waitFor(async () => (await B.locator('button', { hasText: '撤回一步' }).count()) === 1, 'B 出现撤回按钮')
-console.log('ok: 房主开启后非房主也可撤回')
+await waitFor(
+  async () => await B.locator('button', { hasText: '撤回一步' }).isDisabled(),
+  '开启前的步骤不可撤：B 按钮禁用',
+)
+if (!(await A.locator('button', { hasText: '撤回一步' }).isDisabled()))
+  throw new Error('开启前的步骤不可撤：A 按钮也应禁用')
+console.log('ok: 房主开启后非房主也可撤回；开启前下的步骤不可撤')
 
-// B 撤回一步：撤掉自己刚放的 h:11:10，回到 B 的回合（双端一致）
+// A 再放一手 h:12:10（开启后下的）：A 可撤自己，B 不能
+const blueReal = (p) => p.locator('svg line[stroke="#2f6fed"][stroke-opacity="0.92"]').count()
+const blueBefore = await blueReal(A)
+await da.clickU(...hedge(12, 10))
+await waitFor(async () => (await db.status()).includes('你的回合'), 'A 落子后轮到 B')
+await waitFor(
+  async () => !(await A.locator('button', { hasText: '撤回一步' }).isDisabled()),
+  'A 可撤自己开启后下的那手',
+)
+if (!(await B.locator('button', { hasText: '撤回一步' }).isDisabled()))
+  throw new Error('最后一手属于 A，B 的撤回按钮应禁用')
+console.log('ok: 只能撤回自己刚下的那手（A 可用，B 禁用）')
+
+// A 撤回自己这手：双端一致
+await A.locator('button', { hasText: '撤回一步' }).click()
+await waitFor(async () => (await da.status()).includes('你的回合'), '撤回后回到 A 的回合')
+for (const [tag, p] of [['A', A], ['B', B]]) {
+  const n = await blueReal(p)
+  if (n !== blueBefore) throw new Error(`${tag} 页撤回后蓝镜数量应为 ${blueBefore}，实际 ${n}`)
+}
+console.log('ok: 房主撤回自己开启后下的那手，双端局面一致')
+
+// B 开启后下的一手同样可撤：A 落子 → B 落子 h:13:10 → B 撤回（双端一致）
+await da.clickU(...hedge(12, 10))
+await waitFor(async () => (await db.status()).includes('你的回合'), 'A 再次落子后轮到 B')
+await db.clickU(...hedge(13, 10))
+await waitFor(async () => (await da.status()).includes('你的回合'), 'B 落子后轮到 A')
+await waitFor(
+  async () => !(await B.locator('button', { hasText: '撤回一步' }).isDisabled()),
+  'B 可撤自己开启后下的那手',
+)
 await B.locator('button', { hasText: '撤回一步' }).click()
 await waitFor(async () => (await db.status()).includes('你的回合'), '撤回后回到 B 的回合')
 for (const [tag, p] of [['A', A], ['B', B]]) {
   const n = await redReal(p)
-  if (n !== redBefore - 1) throw new Error(`${tag} 页撤回后红镜数量应为 ${redBefore - 1}，实际 ${n}`)
+  if (n !== redBefore) throw new Error(`${tag} 页撤回后红镜数量应为 ${redBefore}，实际 ${n}`)
 }
-console.log('ok: 非房主撤回一步，双端局面一致')
-
-// 只能撤回自己刚下的那手：此时最后一手是 A 的 h:10:10
-if (!(await B.locator('button', { hasText: '撤回一步' }).isDisabled()))
-  throw new Error('最后一手属于 A，B 的撤回按钮应禁用')
-if (await A.locator('button', { hasText: '撤回一步' }).isDisabled())
-  throw new Error('最后一手属于 A，A 的撤回按钮应可用')
-console.log('ok: 只能撤回自己刚下的那手（按钮禁用/可用正确）')
+console.log('ok: 非房主撤回自己开启后下的那手，双端局面一致')
 
 // ===== 单机：撤回按钮始终可用 =====
 const C = await mk('C')
