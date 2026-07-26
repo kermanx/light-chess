@@ -37,7 +37,7 @@ export const isValidCode = (code: string) => /^[12]\d{3}$/.test(code)
  * 仍可用 localStorage 的 light-chess:relays（逗号分隔 ws(s) 地址）整体覆盖，
  * 用于本地开发测试或公共中继不可达的网络环境。
  */
-const PREFERRED_NOSTR_RELAYS = [
+export const PREFERRED_NOSTR_RELAYS = [
   'wss://relay.damus.io',
   'wss://nos.lol',
   'wss://nostr.mom',

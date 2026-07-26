@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { MAX_PLAYERS, MIN_PLAYERS } from '../game'
+import { announceRoom, watchRooms, type PublicRoom } from '../directory'
 import { netClose, netCreate, netJoin, signaling, type Signaling } from '../net'
 import { SIZE_MAX, SIZE_MIN, startLocal, state } from '../store'
 
@@ -14,6 +15,12 @@ const copied = ref(false)
 const count = ref(MIN_PLAYERS)
 /** 联机信令通道（建房时使用；房号首位 1=Nostr 2=MQTT） */
 const sig = ref<Signaling>('nostr')
+/** 公开房间：创建后广播到大厅，其他玩家在加入页可直接看到并点击进入 */
+const pub = ref(true)
+/** 加入页实时看到的公开房间列表 */
+const publicRooms = ref<PublicRoom[]>([])
+/** 未坐满的公开房间 */
+const openRooms = computed(() => publicRooms.value.filter((r) => r.joined < r.players))
 const countOptions = Array.from({ length: MAX_PLAYERS - MIN_PLAYERS + 1 }, (_, i) => MIN_PLAYERS + i)
 
 /** 建房后生成的加入链接（其他玩家打开即可直接入座） */
@@ -47,12 +54,64 @@ function local() {
   startLocal(count.value)
 }
 
+// ---------- 公开房间：广播与监听的生命周期 ----------
+
+let stopAnnounce: (() => void) | null = null
+let stopWatch: (() => void) | null = null
+
+/** 按当前 pub/房号（重）开始广播；未勾选公开则确保停止 */
+async function syncAnnounce() {
+  stopAnnounce?.()
+  stopAnnounce = null
+  if (view.value === 'created' && pub.value && code.value) {
+    stopAnnounce = await announceRoom(() => ({
+      code: code.value,
+      players: count.value,
+      joined: state.roomJoined,
+    }))
+  }
+}
+
+function stopAnnouncing() {
+  stopAnnounce?.()
+  stopAnnounce = null
+}
+
+function stopWatching() {
+  stopWatch?.()
+  stopWatch = null
+  publicRooms.value = []
+}
+
+// 进入加入页开始监听大厅，离开即停；离开创建页停止广播（开局后组件卸载由 onUnmounted 兜底）
+watch(view, async (v) => {
+  if (v === 'join') {
+    if (!stopWatch) stopWatch = await watchRooms((rooms) => (publicRooms.value = rooms))
+  } else {
+    stopWatching()
+  }
+  if (v !== 'created') stopAnnouncing()
+})
+
+onUnmounted(() => {
+  stopAnnouncing()
+  stopWatching()
+})
+
+/** 点击公开房间列表项：直接入座 */
+function joinPublic(r: PublicRoom) {
+  if (busy.value) return
+  joinCode.value = r.code
+  void join()
+}
+
 async function create() {
   busy.value = true
   error.value = ''
   try {
     code.value = await netCreate(count.value, sig.value)
     view.value = 'created'
+    void syncAnnounce()
   } catch (e) {
     error.value = (e as Error).message
   } finally {
@@ -68,6 +127,7 @@ async function onSigChange(e: Event) {
   error.value = ''
   try {
     code.value = await netCreate(count.value, sig.value)
+    void syncAnnounce()
   } catch (err) {
     error.value = (err as Error).message
   } finally {
@@ -92,6 +152,8 @@ async function join() {
 
 function cancel() {
   netClose()
+  stopAnnouncing()
+  stopWatching()
   view.value = 'menu'
   error.value = ''
   clearJoinParam()
@@ -141,6 +203,10 @@ onMounted(() => {
           <span class="card-desc">输入房间号入座</span>
         </button>
       </div>
+      <label class="laser-opt pub-opt">
+        <input type="checkbox" v-model="pub" />
+        公开房间（创建后其他玩家可在加入页直接看到并加入）
+      </label>
     </div>
 
     <div v-else-if="view === 'created'" class="panel">
@@ -157,6 +223,10 @@ onMounted(() => {
       </div>
 
       <div class="settings">
+        <label class="laser-opt">
+          <input type="checkbox" v-model="pub" @change="syncAnnounce" />
+          公开房间（其他玩家可在加入页直接看到并加入）
+        </label>
         <label class="laser-opt">
           <input type="checkbox" v-model="state.laserAllowed" />
           允许显示光路（悬停棋子时查看）
@@ -213,6 +283,20 @@ onMounted(() => {
           加入
         </button>
         <button class="btn-plain" @click="cancel">返回</button>
+      </div>
+      <div class="public-rooms">
+        <p class="pub-title">公开房间</p>
+        <button
+          v-for="r in openRooms"
+          :key="r.code"
+          class="pub-item"
+          :disabled="busy"
+          @click="joinPublic(r)"
+        >
+          <span class="pub-code">{{ r.code }}</span>
+          <span class="pub-meta">{{ r.players }} 人局 · 已就位 {{ r.joined }}/{{ r.players }}</span>
+        </button>
+        <p v-if="!openRooms.length" class="pub-empty">正在寻找公开房间…</p>
       </div>
       <p v-if="busy" class="relay-status" :class="{ warn: signaling.total > 0 && signaling.up === 0 }">
         <template v-if="signaling.up > 0">信令中继已连接 {{ signaling.up }} 个，正在联系房主…</template>
@@ -520,6 +604,65 @@ onMounted(() => {
 .cancel-btn {
   align-self: center;
   min-width: 120px;
+}
+.pub-opt {
+  justify-content: center;
+  font-size: 13px;
+  color: #8a7f68;
+}
+.public-rooms {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 16px;
+  background: #fffdf6;
+  border: 2px dashed #d8cbab;
+  border-radius: 8px;
+}
+.pub-title {
+  margin: 0;
+  font-size: 12px;
+  letter-spacing: 2px;
+  color: #b0a488;
+}
+.pub-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  font-family: inherit;
+  background: #fbf6ea;
+  border: 2px solid #3d3627;
+  border-radius: 10px 3px 12px 3px / 3px 12px 3px 10px;
+  box-shadow: 2px 2px 0 rgba(61, 54, 39, 0.2);
+  cursor: pointer;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+.pub-item:hover:not(:disabled) {
+  transform: translate(-1px, -1px);
+  box-shadow: 3px 3px 0 rgba(61, 54, 39, 0.25);
+}
+.pub-item:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+.pub-code {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 6px;
+  color: #2f6fed;
+  font-family: 'Courier New', monospace;
+}
+.pub-meta {
+  font-size: 12px;
+  color: #8a7f68;
+}
+.pub-empty {
+  margin: 0;
+  font-size: 13px;
+  color: #b0a488;
+  text-align: center;
 }
 .error {
   margin-top: 22px;
