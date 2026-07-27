@@ -770,12 +770,14 @@ const statusText = computed(() => {
 
     <div class="note help-note">
       <h3>怎么玩</h3>
-      <p><b>目标</b>：让自己家射出的激光，经过镜面反射，最终打到别人的家。</p>
-      <p><b>开局</b>：每人先选一个格子当家，再选一条边作为激光出口；家里其余 3 条边会自动放上你的镜子。</p>
-      <p><b>放镜</b>：之后轮流行动，每回合放一面镜子，放下就不能拿走。点击网格的边放「边镜」；左键点格子放「/」斜镜，右键点格子放「\」斜镜，按住 Shift 则斜镜方向反过来。</p>
-      <p><b>反射</b>：自己的镜子对自己的激光是半反射——既会穿过去，也会反射出去；别人的镜子对你的激光只会反射。</p>
-      <p><b>限制</b>：同一种颜色的镜子连同棋盘边框，不能把任意两位玩家的家隔开——会形成死局的放法会被禁止（预览会提示）。</p>
-      <p><b>结算</b>：命中不会立刻生效，而是轮到谁就在谁的回合开头结算谁的激光。被激光打中的玩家出局（家变成 ✕，不能再行动）；双人局打中即获胜，多人局活到最后的人获胜。</p>
+      <div class="help-body">
+        <p><b>目标</b>：让自家的激光经镜面反射，打到别人的家。</p>
+        <p><b>开局</b>：各选一个格子当家并指定激光出口，其余 3 条边自动放上你的镜子。</p>
+        <p><b>放镜</b>：轮流每回合放一面，不可移除。点网格边放边镜；左键格子放「/」、右键放「\」斜镜，Shift 反向。</p>
+        <p><b>反射</b>：自己的镜子对自己半反射（穿过+反射），别人的镜子只反射。</p>
+        <p><b>限制</b>：同色镜子连同边框不能隔开任意两家，否则禁止放置。</p>
+        <p><b>结算</b>：轮到谁就在其回合开头结算其激光；被打中出局（✕）。双人打中即胜，多人活到最后获胜。</p>
+      </div>
     </div>
     </aside>
   </div>
@@ -797,9 +799,7 @@ const statusText = computed(() => {
   flex-direction: column;
   gap: 18px;
   max-height: calc(100vh - 44px);
-  overflow-y: auto;
   padding: 16px 6px 6px;
-  scrollbar-width: thin;
 }
 .logo-sm {
   font-size: 26px;
@@ -1059,6 +1059,17 @@ const statusText = computed(() => {
   margin: 0;
   font-size: 14px;
   font-weight: 700;
+}
+/* 规则文本区域内部滚动，侧栏整体不滚 */
+.help-note {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.help-body {
+  overflow-y: auto;
+  min-height: 0;
+  scrollbar-width: thin;
 }
 .help-note p {
   margin: 8px 0 0;
