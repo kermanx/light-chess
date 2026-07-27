@@ -72,7 +72,7 @@ function makeDriver(page) {
   const st = await d.status()
   if (!st.includes('红方')) throw new Error(`单机刷新后状态未恢复：${st}`)
   // 蓝家的 3 条自动边镜也应恢复（edges > 0）
-  const mirrorCount = await page.locator('svg.board-svg g[filter] line').count()
+  const mirrorCount = await page.locator('svg.board-svg path[fill-opacity="0.92"]').count()
   if (mirrorCount < 3) throw new Error(`单机刷新后镜子未恢复，只剩 ${mirrorCount}`)
   console.log('ok: 单机刷新后局面恢复（状态:', st, '）')
   await ctx.close()

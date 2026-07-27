@@ -132,10 +132,10 @@ await da.waitStatus((s) => s.includes('你的回合'), 'C 落子后轮到 A')
 console.log('ok: 联机回合轮转 蓝→红→黄→蓝')
 
 // 三色镜子都在 C 的页面上渲染（黄：3 条自动家镜 + 1 条刚放的）
-await waitFor(async () => (await C.locator('svg line[stroke="#dd9a10"]').count()) >= 4, '黄色镜子渲染')
-const yellowCount = await C.locator('svg line[stroke="#dd9a10"]').count()
-const redCount = await C.locator('svg line[stroke="#e84a3c"]').count()
-const blueCount = await C.locator('svg line[stroke="#2f6fed"]').count()
+await waitFor(async () => (await C.locator('svg path[fill="#dd9a10"]').count()) >= 4, '黄色镜子渲染')
+const yellowCount = await C.locator('svg path[fill="#dd9a10"]').count()
+const redCount = await C.locator('svg path[fill="#e84a3c"]').count()
+const blueCount = await C.locator('svg path[fill="#2f6fed"]').count()
 if (redCount < 4 || blueCount < 4) throw new Error(`镜子渲染数量异常：红${redCount} 蓝${blueCount}`)
 console.log(`ok: 三色镜子渲染正常（蓝${blueCount} 红${redCount} 黄${yellowCount}）`)
 

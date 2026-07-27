@@ -87,6 +87,58 @@ function diagLine(x: number, y: number, ori: Ori) {
     : { x1: u(x), y1: u(y), x2: u(x + 1), y2: u(y + 1) }
 }
 
+// ---------- 钢笔笔迹 ----------
+
+/** 确定性哈希：同一面镜子每次渲染的笔迹形状一致 */
+function hash01(s: string) {
+  let h = 2166136261
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i)
+    h = Math.imul(h, 16777619)
+  }
+  return ((h >>> 0) % 1000) / 1000
+}
+
+/**
+ * 钢笔笔画：一条沿主轴平滑微弯的墨条（填充路径，非描边直线）。
+ * 中段压笔最粗、两端提笔略收窄；弯度与粗细由 seed 决定，不歪歪扭扭。
+ */
+function penStroke(x1: number, y1: number, x2: number, y2: number, w: number, seed: string) {
+  const STEPS = 10
+  const dx = x2 - x1
+  const dy = y2 - y1
+  const len = Math.hypot(dx, dy) || 1
+  const nx = -dy / len
+  const ny = dx / len
+  const bow = (hash01(`${seed}b`) - 0.5) * 1.4 // 整笔一个平滑微弯
+  const wScale = 0.9 + hash01(`${seed}w`) * 0.25 // 整笔粗细浮动
+  const tip = 0.55 + hash01(`${seed}t`) * 0.15 // 端点提笔后保留的宽度比例
+  const a: string[] = []
+  const b: string[] = []
+  for (let i = 0; i <= STEPS; i++) {
+    const t = i / STEPS
+    const lift = Math.sin(Math.PI * t) // 0→1→0：两端提笔、中段压笔
+    const cx = x1 + dx * t + nx * bow * lift
+    const cy = y1 + dy * t + ny * bow * lift
+    const half = (w / 2) * wScale * (tip + (1 - tip) * lift)
+    a.push(`${i ? 'L' : 'M'}${(cx + nx * half).toFixed(2)} ${(cy + ny * half).toFixed(2)}`)
+    b.unshift(`L${(cx - nx * half).toFixed(2)} ${(cy - ny * half).toFixed(2)}`)
+  }
+  return a.join('') + b.join('') + 'Z'
+}
+
+const isLastEdge = (id: string) => state.lastMove?.kind === 'edge' && state.lastMove.id === id
+const isLastDiag = (key: string) => state.lastMove?.kind === 'diag' && state.lastMove.key === key
+const edgePen = (id: string, w: number) => {
+  const p = edgeLine(id)
+  return penStroke(p.x1, p.y1, p.x2, p.y2, w, `e${id}`)
+}
+const diagPen = (key: string, ori: Ori, w: number) => {
+  const [x, y] = key.split(',').map(Number)
+  const p = diagLine(x, y, ori)
+  return penStroke(p.x1, p.y1, p.x2, p.y2, w, `g${key}`)
+}
+
 const DIRS: Dir[] = [0, 1, 2, 3]
 const DX = [1, 0, -1, 0]
 const DY = [0, 1, 0, -1]
@@ -409,14 +461,6 @@ const statusText = computed(() => {
   <div class="game">
     <div class="paper board-wrap">
       <svg ref="svgEl" class="board-svg" :viewBox="`0 0 ${SIZE} ${SIZE}`">
-        <defs>
-          <!-- 钢笔质感：细微高频位移，让线条带一点手绘抖动又不散 -->
-          <filter id="ink" x="-3%" y="-3%" width="106%" height="106%">
-            <feTurbulence type="fractalNoise" baseFrequency="0.055" numOctaves="3" seed="7" result="n" />
-            <feDisplacementMap in="SourceGraphic" in2="n" scale="1.8" />
-          </filter>
-        </defs>
-
         <!-- 格子点击层 -->
         <rect
           v-for="c in cells"
@@ -433,39 +477,33 @@ const statusText = computed(() => {
           @mouseleave="hoverCell = null"
         />
 
-        <!-- 网格点与镜子：统一套钢笔滤镜 -->
-        <g filter="url(#ink)">
-          <!-- 网格点 -->
-          <circle
-            v-for="d in dots"
-            :key="`d${d.x},${d.y}`"
-            :cx="u(d.x)"
-            :cy="u(d.y)"
-            r="2"
-            class="dot"
-          />
+        <!-- 网格点（清晰圆点，不做笔迹处理） -->
+        <circle v-for="d in dots" :key="`d${d.x},${d.y}`" :cx="u(d.x)" :cy="u(d.y)" r="2" class="dot" />
 
-          <!-- 边镜（上一步放置的加粗一点） -->
-          <line
+        <!-- 镜子：钢笔笔迹的填充墨条（上一步放置的用更粗的一笔） -->
+        <g>
+          <!-- 边镜 -->
+          <path
             v-for="[id, m] in state.edges"
             :key="`e${id}`"
-            v-bind="edgeLine(id)"
-            :stroke="COLORS[m.color]"
-            :stroke-width="state.lastMove?.kind === 'edge' && state.lastMove.id === id ? 3.4 : 2.4"
-            stroke-opacity="0.92"
-            stroke-linecap="round"
+            :d="edgePen(id, isLastEdge(id) ? 3.4 : 2.4)"
+            :fill="COLORS[m.color]"
+            fill-opacity="0.92"
+            :data-edge="id"
+            :data-last="isLastEdge(id) ? '1' : null"
             class="no-events"
           />
 
-          <!-- 斜镜（上一步放置的加粗一点） -->
-          <line
+          <!-- 斜镜 -->
+          <path
             v-for="[key, g] in state.diags"
             :key="`g${key}`"
-            v-bind="diagLine(+key.split(',')[0], +key.split(',')[1], g.ori)"
-            :stroke="COLORS[g.color]"
-            :stroke-width="state.lastMove?.kind === 'diag' && state.lastMove.key === key ? 3.2 : 2.2"
-            stroke-opacity="0.92"
-            stroke-linecap="round"
+            :d="diagPen(key, g.ori, isLastDiag(key) ? 3.2 : 2.2)"
+            :fill="COLORS[g.color]"
+            fill-opacity="0.92"
+            :data-diag="key"
+            :data-ori="g.ori"
+            :data-last="isLastDiag(key) ? '1' : null"
             class="no-events"
           />
         </g>
@@ -532,8 +570,8 @@ const statusText = computed(() => {
           </g>
         </template>
 
-        <!-- 家：小圆点；出局者的家变为 ✕（画在光路之上） -->
-        <g filter="url(#ink)">
+        <!-- 家：小圆点；出局者的家变为 ✕（钢笔笔迹，画在光路之上） -->
+        <g>
           <template v-for="c in state.players" :key="c">
             <template v-if="state.homes[c]">
               <circle
@@ -544,18 +582,30 @@ const statusText = computed(() => {
                 :fill="COLORS[c]"
                 class="no-events"
               />
-              <g v-else class="dead-x no-events" :stroke="COLORS[c]" stroke-width="2.6" stroke-linecap="round">
-                <line
-                  :x1="u(state.homes[c]!.x + 0.5) - S * 0.22"
-                  :y1="u(state.homes[c]!.y + 0.5) - S * 0.22"
-                  :x2="u(state.homes[c]!.x + 0.5) + S * 0.22"
-                  :y2="u(state.homes[c]!.y + 0.5) + S * 0.22"
+              <g v-else class="dead-x no-events" :fill="COLORS[c]">
+                <path
+                  :d="
+                    penStroke(
+                      u(state.homes[c]!.x + 0.5) - S * 0.22,
+                      u(state.homes[c]!.y + 0.5) - S * 0.22,
+                      u(state.homes[c]!.x + 0.5) + S * 0.22,
+                      u(state.homes[c]!.y + 0.5) + S * 0.22,
+                      2.6,
+                      `x${c}a`,
+                    )
+                  "
                 />
-                <line
-                  :x1="u(state.homes[c]!.x + 0.5) - S * 0.22"
-                  :y1="u(state.homes[c]!.y + 0.5) + S * 0.22"
-                  :x2="u(state.homes[c]!.x + 0.5) + S * 0.22"
-                  :y2="u(state.homes[c]!.y + 0.5) - S * 0.22"
+                <path
+                  :d="
+                    penStroke(
+                      u(state.homes[c]!.x + 0.5) - S * 0.22,
+                      u(state.homes[c]!.y + 0.5) + S * 0.22,
+                      u(state.homes[c]!.x + 0.5) + S * 0.22,
+                      u(state.homes[c]!.y + 0.5) - S * 0.22,
+                      2.6,
+                      `x${c}b`,
+                    )
+                  "
                 />
               </g>
             </template>

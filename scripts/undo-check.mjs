@@ -88,7 +88,7 @@ console.log('ok: 非房主无重新开始/撤回一步按钮')
 // A 放边镜 h:10:10 → 上一步加粗；轮到 B
 await da.clickU(...hedge(10, 10))
 await waitFor(async () => (await db.status()).includes('你的回合'), 'A 落子后轮到 B')
-await waitFor(async () => (await B.locator('svg line[stroke-width="3.4"]').count()) === 1, '上一步边镜加粗')
+await waitFor(async () => (await B.locator('svg path[data-last="1"]').count()) === 1, '上一步边镜加粗')
 console.log('ok: 上一步放置的边镜加粗显示')
 
 // B 放边镜 h:11:10 → 轮到 A（B 进入等待）
@@ -100,7 +100,7 @@ await db.hoverU(...hedge(12, 10))
 const ghost = await B.locator('svg line[stroke-opacity="0.45"]').count()
 if (ghost === 0) throw new Error('等待方悬停应显示放置预览')
 console.log('ok: 等待方悬停显示预览')
-const redReal = (p) => p.locator('svg line[stroke="#e84a3c"][stroke-opacity="0.92"]').count()
+const redReal = (p) => p.locator('svg path[fill="#e84a3c"][fill-opacity="0.92"]').count()
 const redBefore = await redReal(B)
 await db.clickU(...hedge(12, 10))
 await waitFor(async () => (await B.locator('.status-note.nudged').count()) === 1, '提醒动画 class')
@@ -120,7 +120,7 @@ if (!(await A.locator('button', { hasText: '撤回一步' }).isDisabled()))
 console.log('ok: 房主开启后非房主也可撤回；开启前下的步骤不可撤')
 
 // A 再放一手 h:12:10（开启后下的）：A 可撤自己，B 不能
-const blueReal = (p) => p.locator('svg line[stroke="#2f6fed"][stroke-opacity="0.92"]').count()
+const blueReal = (p) => p.locator('svg path[fill="#2f6fed"][fill-opacity="0.92"]').count()
 const blueBefore = await blueReal(A)
 await da.clickU(...hedge(12, 10))
 await waitFor(async () => (await db.status()).includes('你的回合'), 'A 落子后轮到 B')
@@ -168,10 +168,10 @@ await dc.clickU(PAD + 7.6 * S, PAD + 6.5 * S)
 await dc.clickU(...cell(20, 8))
 await dc.clickU(PAD + 20.5 * S, PAD + 9.6 * S)
 await dc.clickU(...hedge(10, 10))
-if ((await C.locator('svg line[stroke-width="3.4"]').count()) !== 1) throw new Error('单机：上一步应加粗')
+if ((await C.locator('svg path[data-last="1"]').count()) !== 1) throw new Error('单机：上一步应加粗')
 await C.locator('button', { hasText: '撤回一步' }).click()
 await C.waitForTimeout(300)
-if ((await C.locator('svg line[stroke="#2f6fed"]').count()) !== 3) throw new Error('单机：撤回后蓝镜应为 3 条（家的自动镜）')
+if ((await C.locator('svg path[fill="#2f6fed"]').count()) !== 3) throw new Error('单机：撤回后蓝镜应为 3 条（家的自动镜）')
 console.log('ok: 单机撤回一步可用')
 
 // ===== 单机：Shift 反向斜镜 =====
@@ -189,24 +189,22 @@ await C.waitForTimeout(250)
 ;[gy1, gy2] = await ghostY()
 if (!(gy1 < gy2)) throw new Error('按住 Shift 斜镜预览应翻转为「\\」（y1 < y2）')
 console.log('ok: Shift 按住时斜镜预览反向')
-// Shift+左键：放下的是「\」——(15,15) → x1=u(15)=456, y1=u(15)=456
+// Shift+左键：放下的是「\」——data-diag="15,15" 且 data-ori 为反斜杠
 await dc.clickU(...cell(15, 15))
-await waitFor(
-  async () => (await C.locator('svg line[stroke-opacity="0.92"][x1="456"][y1="456"]').count()) === 1,
-  'Shift+左键放「\\」',
-)
+await waitFor(async () => (await C.locator('svg path[data-diag="15,15"]').count()) === 1, 'Shift+左键落子')
+if ((await C.locator('svg path[data-diag="15,15"]').getAttribute('data-ori')) !== '\\')
+  throw new Error('Shift+左键应放下「\\」斜镜')
 console.log('ok: Shift+左键放下「\\」斜镜')
 await C.keyboard.up('Shift')
-// 松开 Shift：预览恢复「/」，左键放「/」——(18,15) → x1=u(18)=540, y1=u(16)=484
+// 松开 Shift：预览恢复「/」，左键放「/」——data-diag="18,15"
 await dc.hoverU(...cell(18, 15))
 await C.waitForTimeout(250)
 ;[gy1, gy2] = await ghostY()
 if (!(gy1 > gy2)) throw new Error('松开 Shift 斜镜预览应恢复为「/」')
 await dc.clickU(...cell(18, 15))
-await waitFor(
-  async () => (await C.locator('svg line[stroke-opacity="0.92"][x1="540"][y1="484"]').count()) === 1,
-  '左键放「/」',
-)
+await waitFor(async () => (await C.locator('svg path[data-diag="18,15"]').count()) === 1, '左键落子')
+if ((await C.locator('svg path[data-diag="18,15"]').getAttribute('data-ori')) !== '/')
+  throw new Error('左键应放下「/」斜镜')
 console.log('ok: 松开 Shift 后左键放下「/」斜镜')
 
 await browser.close()
