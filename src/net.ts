@@ -74,7 +74,7 @@ type Msg =
   | { t: 'hello'; token: string; want: Color | null }
   | { t: 'welcome'; color: Color; players: number; joined: number; started: boolean }
   | { t: 'room-info'; joined: number }
-  | { t: 'start'; players: number; settings?: { size: number; laserAllowed: boolean; allowUndo: boolean } }
+  | { t: 'start'; players: number; settings?: { size: number; laserAllowed: boolean; allowUndo: boolean; boundaryReflects?: boolean } }
   | { t: 'act'; act: Action; origin?: string }
   | { t: 'sync'; snap: Snapshot }
   | { t: 'err'; msg: string }
@@ -264,15 +264,19 @@ function hostOnHello(msg: Extract<Msg, { t: 'hello' }>, peerId: string) {
     // 另发 board-size 会在慢网络下清空客人刚放好的家。
     started = true
     startOnline(state.myColor!, state.roomCode, state.players)
+    const settings = {
+      size: state.size, laserAllowed: state.laserAllowed, allowUndo: state.allowUndo,
+      boundaryReflects: state.boundaryReflects,
+    }
     if (relayRoom) {
       send({
         t: 'start',
         players: state.players.length,
-        settings: { size: state.size, laserAllowed: state.laserAllowed, allowUndo: state.allowUndo },
+        settings,
       })
     } else {
       // 兼容仍在使用旧版客户端的 P2P 房间。
-      send({ t: 'start', players: state.players.length })
+      send({ t: 'start', players: state.players.length, settings })
       sendAct({ kind: 'laser-setting', color: state.players[0], allow: state.laserAllowed })
       sendAct({ kind: 'undo-setting', color: state.players[0], allow: state.allowUndo, floor: 0 })
       sendAct({ kind: 'board-size', color: state.players[0], size: state.size })
@@ -350,6 +354,7 @@ function handle(msg: Msg, peerId: string) {
           state.laserAllowed = msg.settings.laserAllowed
           state.allowUndo = msg.settings.allowUndo
         }
+        state.boundaryReflects = msg.settings?.boundaryReflects ?? false
         startOnline(state.myColor!, state.roomCode, state.players)
       }
       break

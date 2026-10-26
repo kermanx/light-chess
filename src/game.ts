@@ -50,6 +50,8 @@ export interface BoardState {
   diags: Map<string, Diag>
   /** 棋盘格数 */
   size: number
+  /** 边界对所有颜色全反射；缺省为旧规则（出界光线终止） */
+  boundaryReflects?: boolean
 }
 
 export interface SimResult {
@@ -221,10 +223,12 @@ export function simulate(board: BoardState, color: Color): SimResult {
     for (const d of dirs) {
       const eid = edgeOf(node.x, node.y, d)
       const m = board.edges.get(eid)
+      const boundaryMirror = board.boundaryReflects && !inside(node.x + DX[d], node.y + DY[d], size)
       // 无镜：穿过；己镜：穿过+反射（半反射）；敌镜：必须反射
-      const outs: Dir[] = m ? (m.color === color ? [d, opp(d)] : [opp(d)]) : [d]
+      // 开启边界反射时，边界优先于镜子颜色，任何光线都只能反射。
+      const outs: Dir[] = boundaryMirror ? [opp(d)] : m ? (m.color === color ? [d, opp(d)] : [opp(d)]) : [d]
       for (const d2 of outs) {
-        if (m && d2 === opp(d)) {
+        if ((boundaryMirror || m) && d2 === opp(d)) {
           // 在边上反射回本格
           const mid = edgeMid(eid)
           const c = center(node.x, node.y)

@@ -1,4 +1,4 @@
-// 自带开发服务：检查斜镜封口的禁止预览、方向切换及两种落子顺序。
+// 自带开发服务：检查边界规则开关，以及斜镜封口的禁止预览、方向切换和落子。
 import assert from 'node:assert/strict'
 import { chromium } from 'playwright'
 import { createServer } from 'vite'
@@ -14,7 +14,13 @@ try {
   const errors = []
   page.on('pageerror', error => errors.push(error.message))
   await page.goto(`http://127.0.0.1:${vite.httpServer.address().port}/`)
+  const boundary = page.getByLabel('边界反射', { exact: false })
+  assert(await boundary.isChecked(), '新局默认开启边界反射')
+  await boundary.uncheck()
   await page.getByText('单机对战').click()
+  assert(!(await boundary.isChecked()), '大厅选择带入单机')
+  await boundary.check()
+  await boundary.uncheck()
   const status = text => page.locator('.status-note').filter({ hasText: text }).waitFor()
   const position = async (x, y) => {
     const box = await page.locator('svg.board-svg').boundingBox()
@@ -36,6 +42,11 @@ try {
   const blueMirrors = page.locator('svg path[fill="#2f6fed"]')
   const forbiddenPreview = page.locator('svg line[stroke="#b91c1c"][stroke-dasharray="5 4"]')
   await setup()
+  assert(await boundary.isDisabled(), '开局后规则锁定')
+  await page.reload()
+  await status('蓝方回合')
+  assert(!(await boundary.isChecked()) && await boundary.isDisabled(), '刷新后保留关闭状态及锁定')
+  console.log('ok: 边界开关默认开启，单机可在开局前设置，开局后锁定且刷新保留')
   await click(11.5, 12)
   await status('红方回合')
   await click(25.5, 25)
@@ -92,6 +103,12 @@ try {
   await status('蓝方回合')
   assert.equal(await page.locator('[data-edge="v:11:12"][fill="#e84a3c"]').count(), 1)
   console.log('ok: 对方可以在基地开口预览并放镜，正常轮转回合')
+  await page.getByText('重新开始', { exact: true }).click()
+  await boundary.check()
+  await page.reload()
+  await status('蓝方')
+  assert(await boundary.isChecked() && await boundary.isEnabled(), '重新开始可改，开启状态也随刷新保存')
+  console.log('ok: 重新开始后解锁边界设置，开启状态随刷新保留')
   assert.deepEqual(errors, [])
 } finally {
   await browser.close()

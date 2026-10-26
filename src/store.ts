@@ -43,6 +43,7 @@ export type Action =
   | { kind: 'undo-setting'; color: Color; allow: boolean; floor?: number }
   | { kind: 'undo'; color: Color; frame: UndoFrame }
   | { kind: 'board-size'; color: Color; size: number }
+  | { kind: 'boundary-setting'; color: Color; enabled: boolean }
   | { kind: 'restart'; color: Color }
 
 export const state = reactive({
@@ -68,6 +69,8 @@ export const state = reactive({
   laserAllowed: false,
   /** 联机：房主是否允许撤回一步（默认禁止；单机始终允许） */
   allowUndo: false,
+  /** 开局前可改；开启时边界对所有颜色的光全反射 */
+  boundaryReflects: true,
   /** 可撤回的底线（历史栈深度）：开启「允许撤回」时锁定，开启之前下的步骤不可撤 */
   undoFloor: 0,
   /** 上一步放置的镜子（用于加粗高亮；家的自动镜不算） */
@@ -84,6 +87,9 @@ export const board: BoardState = {
   diags: state.diags,
   get size() {
     return state.size
+  },
+  get boundaryReflects() {
+    return state.boundaryReflects
   },
 }
 
@@ -240,6 +246,7 @@ export function toLobby() {
   clearHistory()
   state.laserAllowed = false
   state.allowUndo = false
+  state.boundaryReflects = true
   state.size = DEFAULT_SIZE
 }
 
@@ -285,7 +292,7 @@ function validate(a: Action, local: boolean): boolean {
       (state.allowUndo && state.lastMove?.color === a.color && undoDepth.value > state.undoFloor)
     )
   }
-  if (a.kind === 'board-size') {
+  if (a.kind === 'board-size' || a.kind === 'boundary-setting') {
     // 仅布置阶段可调；联机只有房主可调，单机任意
     if (state.phase !== 'setup') return false
     return state.mode === 'local' || a.color === state.players[0]
@@ -318,6 +325,10 @@ function apply(a: Action) {
     state.allowUndo = a.allow
     // 开启时把当前栈深记为底线：之前下的步骤不可撤（floor 由房主端随动作带来，各端一致）
     state.undoFloor = a.allow ? (a.floor ?? undoDepth.value) : 0
+    return
+  }
+  if (a.kind === 'boundary-setting') {
+    state.boundaryReflects = a.enabled
     return
   }
   if (a.kind === 'undo') {
@@ -432,6 +443,8 @@ export interface Snapshot {
   laserAllowed: boolean
   /** 缺省视为禁止撤回 */
   allowUndo?: boolean
+  /** 老存档缺省为关闭，保留该局原来的边界规则 */
+  boundaryReflects?: boolean
   /** 上一步放置的镜子；缺省视为无 */
   lastMove?: LastMove
   /** 对局会话 id（/s/<id>）；无此字段的存档视为旧格式，加载时直接忽略 */
@@ -455,6 +468,7 @@ export function serialize(): Snapshot {
     dead: [...state.dead],
     laserAllowed: state.laserAllowed,
     allowUndo: state.allowUndo,
+    boundaryReflects: state.boundaryReflects,
     lastMove: state.lastMove,
     sessionId: state.sessionId,
     size: state.size,
@@ -488,6 +502,7 @@ export function applySnapshot(s: Snapshot, preserveIdentity = false) {
   state.dead = s.dead?.length ? [...s.dead] : []
   state.laserAllowed = s.laserAllowed
   state.allowUndo = s.allowUndo ?? false
+  state.boundaryReflects = s.boundaryReflects ?? false
   state.lastMove = s.lastMove ?? null
   clearHistory() // 历史栈不随快照走，恢复后从空栈重新累计
   state.size = s.size

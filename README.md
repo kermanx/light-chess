@@ -10,6 +10,7 @@
 - 每位玩家选一个格子作为家并指定开口，家中其余 3 条边自动放镜。家向四个方向发光，家镜同样对己方光线半反射（穿过 + 反射）。
 - 之后按座位顺序轮流放镜子（每回合一个，不可移除）：点击网格边放边镜，左键格子放「/」斜镜，右键放「\」斜镜。对方基地的开口也可放镜，仍须遵守禁围规则。
 - 己方镜子对己方激光是半反射（既穿过又反射），其他颜色的镜子必须反射。
+- 「边界反射」默认开启：边界对所有颜色的光全反射；关闭时出界光线终止。开局前可设置，联机由房主控制并同步，进入对局后固定。该开关不影响禁围规则，边框始终算墙。
 - 命中不立即生效：在每位玩家回合开头结算其激光，被击中的玩家出局（家变为 ✕）；双人局被击中即判负，多人局只剩一人时获胜。
 - 每种颜色的边镜、斜镜分别连同边框，不能把任意两名存活玩家的家隔开（非法放置会被拒绝）；所有基地仍在同一区域时允许。
 - 支持 2~4 人，单机同屏或联机（创建/加入 4 位房间号）。
@@ -45,9 +46,10 @@ localStorage.setItem('light-chess:mqtt-relays', 'ws://localhost:8788')
 
 ```bash
 npx tsx scripts/sim-check.ts      # 光路模拟单元场景
+npx tsx scripts/boundary-check.ts # 边界反射、规则锁定与存档兼容
 npx tsx scripts/store-check.ts    # 规则/回合/围死判定（纯逻辑）
 node scripts/visual-check.mjs     # 单机 UI 冒烟（需 dev 服务器）
-node scripts/enclosure-check.mjs  # 边镜/斜镜禁围预览与落子（自带服务）
+node scripts/enclosure-check.mjs  # 规则开关、边镜/斜镜禁围预览与落子（自带服务）
 node scripts/mp-check.mjs         # 三人联机端到端（需 dev 服务器 + 本地中继）
 node scripts/persist-check.mjs    # 刷新恢复（需 dev 服务器 + 本地中继）
 node scripts/relay-check.mjs      # 禁用 WebRTC；丢包/乱序/重复/中继故障回归（自带服务）

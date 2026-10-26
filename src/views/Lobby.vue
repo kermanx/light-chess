@@ -203,6 +203,10 @@ onMounted(() => {
           <span class="card-desc">输入房间号入座</span>
         </button>
       </div>
+      <label class="laser-opt">
+        <input type="checkbox" v-model="state.boundaryReflects" />
+        边界反射（所有光线碰到边界都会反射）
+      </label>
       <label class="laser-opt pub-opt">
         <input type="checkbox" v-model="pub" />
         公开房间（创建后其他玩家可在加入页直接看到并加入）
@@ -223,6 +227,10 @@ onMounted(() => {
       </div>
 
       <div class="settings">
+        <label class="laser-opt">
+          <input type="checkbox" v-model="state.boundaryReflects" />
+          边界反射（所有光线碰到边界都会反射）
+        </label>
         <label class="laser-opt">
           <input type="checkbox" v-model="pub" @change="syncAnnounce" />
           公开房间（其他玩家可在加入页直接看到并加入）

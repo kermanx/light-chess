@@ -157,19 +157,26 @@ try {
   await host.locator('.size-input').fill('24')
   await host.locator('.size-input').dispatchEvent('change')
   await host.getByLabel('允许撤回一步', { exact: false }).check()
+  await host.getByLabel('边界反射', { exact: false }).uncheck()
   await guest.goto(`${BASE}/?join=${code}`)
   await guest.waitForSelector('svg.board-svg')
   const initial = await guest.evaluate(async () => {
     const { state, dispatch } = await import('/src/store.ts')
-    const settings = { size: state.size, undo: state.allowUndo }
+    const settings = { size: state.size, undo: state.allowUndo, boundary: state.boundaryReflects }
     dispatch({ kind: 'setup', color: state.myColor, home: { x: 6, y: 6, dir: 1 } })
     return { ...settings, awaitingHost: !state.homes.red }
   })
-  assert.deepEqual(initial, { size: 24, undo: true, awaitingHost: true }, '开局设置完整，落子等待房主确认')
+  assert.deepEqual(initial, { size: 24, undo: true, boundary: false, awaitingHost: true }, '开局设置完整，落子等待房主确认')
   await host.waitForFunction(async () => Boolean((await import('/src/store.ts')).state.homes.red))
   await new Promise(resolve => setTimeout(resolve, 2500))
   assert.deepEqual(await guest.evaluate(async () => (await import('/src/store.ts')).state.homes.red), { x: 6, y: 6, dir: 1 })
   console.log('ok: 开局原子同步设置，迟到的设置不会清空客人的布置')
+
+  assert(await guest.getByLabel('边界反射', { exact: false }).isDisabled(), '客人不能修改边界规则')
+  await host.getByLabel('边界反射', { exact: false }).check()
+  await guest.waitForFunction(async () => (await import('/src/store.ts')).state.boundaryReflects)
+  assert(await guest.getByLabel('边界反射', { exact: false }).isChecked())
+  console.log('ok: 建房设置带入客人，布置阶段房主更改边界规则会同步到客人')
 
   await host.evaluate(async () => {
     const { dispatch } = await import('/src/store.ts')
@@ -188,6 +195,16 @@ try {
     })
   }
   console.log('ok: 客人在房主基地开口放镜，房主确认后两端棋局与回合一致')
+  for (const page of [host, guest]) {
+    assert(await page.getByLabel('边界反射', { exact: false }).isDisabled(), '开局后两端边界规则都锁定')
+  }
+  await guest.reload()
+  await guest.waitForFunction(async () => {
+    const { state } = await import('/src/store.ts')
+    return state.phase === 'play' && !state.peerLeft && state.boundaryReflects && state.edges.has('v:4:3')
+  })
+  assert(await guest.getByLabel('边界反射', { exact: false }).isChecked())
+  console.log('ok: 开局后边界规则锁定，客人刷新重连后仍保持一致')
 } finally {
   await browser.close()
   for (const { server, broker } of brokers) {

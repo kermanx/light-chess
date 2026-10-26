@@ -378,6 +378,14 @@ function changeSize(e: Event) {
   dispatch({ kind: 'board-size', color: state.mode === 'online' ? hostColor.value : setupColor.value, size: v })
 }
 
+function toggleBoundary(e: Event) {
+  dispatch({
+    kind: 'boundary-setting',
+    color: state.mode === 'online' ? hostColor.value : setupColor.value,
+    enabled: (e.target as HTMLInputElement).checked,
+  })
+}
+
 // 棋盘尺寸变化会重置对局，清掉本地待选状态
 watch(
   () => state.size,
@@ -754,6 +762,11 @@ const statusText = computed(() => {
       </div>
 
       <div class="ctl-note note">
+      <label class="chk">
+        <input type="checkbox" :checked="state.boundaryReflects"
+          :disabled="state.phase !== 'setup' || !isHostSide" @change="toggleBoundary" />
+        边界反射（开局前设置）
+      </label>
       <template v-if="state.mode === 'online' && state.myColor === hostColor">
         <label class="chk">
           <input type="checkbox" :checked="state.laserAllowed" @change="toggleLaser" />
@@ -781,6 +794,7 @@ const statusText = computed(() => {
         <p><b>开局</b>：各选一个格子当家并指定开口，其余 3 条边自动放上你的镜子。家向四个方向发光，光线也能穿过自己的家镜。</p>
         <p><b>放镜</b>：轮流每回合放一面，不可移除。点网格边放边镜；左键格子放「/」、右键放「\」斜镜，Shift 反向。对方基地的开口也可放镜，仍须遵守禁围规则。</p>
         <p><b>反射</b>：自己的镜子对自己半反射（穿过+反射），别人的镜子只反射。</p>
+        <p><b>边界</b>：开启「边界反射」时，边界对所有光线全反射；关闭时出界光线终止。开局后不可更改。</p>
         <p><b>限制</b>：每种颜色的边镜、斜镜分别连同边框，不能把仍在场的基地彼此隔开；所有基地仍在同一区域时允许。</p>
         <p><b>结算</b>：轮到谁就在其回合开头结算其激光；被打中出局（✕）。双人打中即胜，多人活到最后获胜。</p>
       </div>
