@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import ClockSettings from '../components/ClockSettings.vue'
 import ChessClock from '../components/ChessClock.vue'
+import VictoryCelebration from '../components/VictoryCelebration.vue'
 import type { ClockSettings as ClockConfig } from '../clock'
 import {
   edgeMid,
@@ -45,6 +46,8 @@ const hoverEdge = ref<string | null>(null)
 const hoverCell = ref<Pt | null>(null)
 /** setup 阶段：已点选家、等待选出口的格子 */
 const pendingHome = ref<Pt | null>(null)
+const victoryDismissed = ref(false)
+watch(() => [state.phase, state.winner], () => { victoryDismissed.value = false })
 
 // ---------- 网格数据（随棋盘尺寸变化） ----------
 const dots = computed(() => {
@@ -743,16 +746,8 @@ const statusText = computed(() => {
         />
       </svg>
 
-      <div class="overlay" v-if="state.phase === 'over'">
-        <div class="overlay-card paper" :class="state.winner!">
-          <div class="overlay-title">{{ name(state.winner!) }}获胜</div>
-          <p v-if="state.timedOut.length">{{ state.timedOut.map(name).join('、') }}用时耗尽</p>
-          <div class="overlay-btns">
-            <button v-if="isHostSide" class="btn-primary" @click="restart">再来一局</button>
-            <span v-else class="wait-host">等待房主再来一局…</span>
-          </div>
-        </div>
-      </div>
+      <VictoryCelebration v-if="state.phase === 'over' && state.winner && !victoryDismissed"
+        :key="state.winner" :winner="state.winner" :timed-out="state.timedOut" @confirm="victoryDismissed = true" />
     </div>
 
     <aside class="side">
@@ -1043,42 +1038,6 @@ const statusText = computed(() => {
   stroke-linecap: round;
   filter: drop-shadow(0 0 5px currentColor);
   pointer-events: none;
-}
-.overlay {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(60, 52, 36, 0.35);
-}
-.overlay-card {
-  text-align: center;
-  padding: 30px 48px;
-  border-radius: 14px;
-}
-.overlay-card.blue {
-  border-color: #2f6fed;
-}
-.overlay-card.red {
-  border-color: #e84a3c;
-}
-.overlay-card.yellow {
-  border-color: #dd9a10;
-}
-.overlay-card.green {
-  border-color: #34a05c;
-}
-.overlay-title {
-  font-size: 26px;
-  font-weight: 700;
-  margin-bottom: 18px;
-  color: #35301f;
-}
-.overlay-btns {
-  display: flex;
-  gap: 12px;
-  justify-content: center;
 }
 .ctl-note {
   display: flex;

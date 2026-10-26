@@ -195,7 +195,7 @@ await da.clickU(...da.cell(20, 12), 'right') // A '\' —— 走廊闭合，命�
 await db.waitStatus((s) => s.includes('你的回合'), '走廊闭合后轮到 B')
 for (const [tag, p] of [['A', A], ['B', B], ['C', C]]) {
   if ((await p.locator('.dead-x').count()) !== 0) throw new Error(`${tag} 页不应出现死家标记`)
-  if ((await p.locator('.overlay').count()) !== 0) throw new Error(`${tag} 页不应出现结算遮罩`)
+  if ((await p.locator('.victory-dialog').count()) !== 0) throw new Error(`${tag} 页不应出现结算遮罩`)
 }
 console.log('ok: 命中延迟结算（B 尚有自救机会，页面无 ✕ 无遮罩）')
 
@@ -208,7 +208,7 @@ await da.waitStatus((s) => s.includes('你的回合'), '结算后仍是 A 的回
 await waitFor(async () => (await B.locator('.meta-note').innerText()).includes('已出局'), 'B 页提示红方已出局')
 for (const [tag, p] of [['A', A], ['B', B], ['C', C]]) {
   await waitFor(async () => (await p.locator('.dead-x').count()) === 1, `${tag} 页死家 ✕`)
-  if ((await p.locator('.overlay').count()) !== 0) throw new Error(`${tag} 页对局应继续，无遮罩`)
+  if ((await p.locator('.victory-dialog').count()) !== 0) throw new Error(`${tag} 页对局应继续，无遮罩`)
 }
 console.log('ok: B 被淘汰——对局继续，三页均显示死家 ✕，B 页提示已出局')
 
