@@ -15,7 +15,7 @@ const tracks = computed(() => props.replay.targets.map(target => {
   for (let i = 1; i < points.length; i++) {
     distances.push(distances[i - 1] + Math.hypot(points[i].x - points[i - 1].x, points[i].y - points[i - 1].y))
   }
-  return { color: target.color, points, distances, length: distances.at(-1)!, d: points.map((p, i) => `${i ? 'L' : 'M'}${p.x} ${p.y}`).join(' ') }
+  return { color: target.color, points, distances, length: distances.at(-1)! }
 }))
 const longest = computed(() => Math.max(1, ...tracks.value.map(t => t.length)))
 const duration = computed(() => Math.max(1400, Math.min(3200, longest.value / 350 * 1000)))
@@ -33,8 +33,12 @@ const beams = computed(() => tracks.value.map(track => {
     angle = Math.atan2(b.y - a.y, b.x - a.x) * 180 / Math.PI
     break
   }
+  // 用已走过的实际坐标截断光迹，让任意棋盘缩放下光迹末端都与光点重合。
+  const revealed = track.points.filter((_, i) => track.distances[i] <= distance)
+  if (distance < track.length && distance > 0) revealed.push(head)
+  const d = revealed.map((p, i) => `${i ? 'L' : 'M'}${p.x} ${p.y}`).join(' ')
   const impactAge = elapsed.value - track.length / longest.value * duration.value
-  return { ...track, head, angle, distance, arrived: distance >= track.length, impactAge }
+  return { ...track, d, head, angle, distance, arrived: distance >= track.length, impactAge }
 }))
 let frame = 0
 let timer: ReturnType<typeof setTimeout> | undefined
@@ -71,7 +75,6 @@ onBeforeUnmount(() => { cancelAnimationFrame(frame); clearTimeout(timer) })
   <g ref="root" class="victory-beams" :style="{ color }" aria-label="致胜光路">
     <g v-for="beam in beams" :key="beam.color" :data-target="beam.color">
       <path v-for="layer in ['glow', 'body', 'core']" :key="layer" :d="beam.d" :class="`victory-beam-${layer}`"
-        :stroke-dasharray="`${beam.length} ${beam.length}`" :stroke-dashoffset="beam.length - beam.distance"
         vector-effect="non-scaling-stroke" />
       <g v-if="!beam.arrived" class="victory-photon" :transform="`translate(${beam.head.x} ${beam.head.y}) rotate(${beam.angle})`">
         <circle r="9" fill="currentColor" opacity=".25" />
