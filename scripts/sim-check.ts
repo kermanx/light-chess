@@ -1,5 +1,5 @@
 // 激光模拟逻辑的一次性校验脚本（npx tsx scripts/sim-check.ts）
-import { createsEnclosure, simulate, type BoardState } from '../src/game'
+import { createsEnclosure, DX, DY, edgeMid, edgeOf, simulate, type BoardState, type Dir, type Pt } from '../src/game'
 
 function assert(cond: boolean, msg: string) {
   if (!cond) throw new Error(`FAIL: ${msg}`)
@@ -187,5 +187,67 @@ assert(
   b9.segments.some(([p, q]) => p.x === 4.5 && q.x === 4.5 && Math.min(p.y, q.y) <= 3.5),
   '存在从家中心向上穿出家的光路段',
 )
+
+// 场景 10：无论开口朝哪边，家都向四个方向发光，三面家镜仍穿透并反射。
+const dirs: Dir[] = [0, 1, 2, 3]
+const samePoint = (p: Pt, q: Pt) => p.x === q.x && p.y === q.y
+const hasSegment = (result: ReturnType<typeof simulate>, p: Pt, q: Pt) =>
+  result.segments.some(([a, b]) =>
+    (samePoint(a, p) && samePoint(b, q)) || (samePoint(a, q) && samePoint(b, p)))
+for (const gap of dirs) {
+  const source = { x: 4, y: 4, dir: gap }
+  const board: BoardState = {
+    size: 10,
+    homes: { blue: source, red: { x: 8, y: 8, dir: 2 } },
+    edges: new Map(dirs.filter((d) => d !== gap).map((d) => [edgeOf(4, 4, d), { color: 'blue' }])),
+    diags: new Map(),
+  }
+  const result = simulate(board, 'blue')
+  for (const d of dirs) {
+    assert(hasSegment(result, { x: 4.5, y: 4.5 }, { x: 4.5 + DX[d], y: 4.5 + DY[d] }),
+      `开口 ${gap}：方向 ${d} 有从家向外发射的光线`)
+    if (d !== gap) {
+      assert(hasSegment(result, { x: 4.5, y: 4.5 }, edgeMid(edgeOf(4, 4, d))),
+        `开口 ${gap}：方向 ${d} 的己方家镜仍产生反射分支`)
+    }
+  }
+}
+
+// 场景 11：从四个方向发出的光都参与命中判定，敌方家镜仍会阻挡。
+for (const d of dirs) {
+  const target = { x: 4 + 3 * DX[d], y: 4 + 3 * DY[d], dir: ((d + 2) % 4) as Dir }
+  const board: BoardState = {
+    size: 10,
+    homes: { blue: { x: 4, y: 4, dir: 0 }, red: target },
+    edges: new Map(dirs.filter((dir) => dir !== 0).map((dir) => [edgeOf(4, 4, dir), { color: 'blue' }])),
+    diags: new Map(),
+  }
+  for (const dir of dirs) {
+    if (dir !== target.dir) board.edges.set(edgeOf(target.x, target.y, dir), { color: 'red' })
+  }
+  const result = simulate(board, 'blue')
+  assert(result.hits.includes('red'), `方向 ${d} 发出的光能命中红家`)
+  assert(!!result.hitPath && samePoint(result.hitPath[0], { x: 4.5, y: 4.5 }) &&
+    samePoint(result.hitPath.at(-1)!, { x: target.x + 0.5, y: target.y + 0.5 }),
+  `方向 ${d} 的高亮路径从蓝家开始、在红家结束`)
+  board.edges.set(edgeOf(target.x, target.y, target.dir), { color: 'red' })
+  board.edges.delete(edgeOf(target.x, target.y, d))
+  assert(!simulate(board, 'blue').hit, `方向 ${d} 的光不能穿透红色家镜`)
+}
+
+// 场景 12：角落的两束光到边界终止，不影响其他方向穿过家镜并命中。
+const corner: BoardState = {
+  size: 10,
+  homes: { blue: { x: 0, y: 0, dir: 0 }, red: { x: 0, y: 3, dir: 3 } },
+  edges: new Map([
+    ['h:0:0', { color: 'blue' }], ['v:0:0', { color: 'blue' }], ['h:0:1', { color: 'blue' }],
+    ['v:0:3', { color: 'red' }], ['v:1:3', { color: 'red' }], ['h:0:4', { color: 'red' }],
+  ]),
+  diags: new Map(),
+}
+const cornerResult = simulate(corner, 'blue')
+assert(cornerResult.hit, '角落的家仍能向下穿过己方家镜命中红家')
+assert(hasSegment(cornerResult, { x: 0.5, y: 0.5 }, { x: 0, y: 0.5 }) &&
+  hasSegment(cornerResult, { x: 0.5, y: 0.5 }, { x: 0.5, y: 0 }), '角落向左和向上的光止于边界')
 
 console.log('全部通过')

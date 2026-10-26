@@ -51,6 +51,10 @@ function makeDriver(page) {
       await page.mouse.click(sx, sy, { button })
       await page.waitForTimeout(150)
     },
+    async hoverU(ux, uy) {
+      const [sx, sy] = await toScreen(ux, uy)
+      await page.mouse.move(sx, sy)
+    },
     cell: (x, y) => [PAD + (x + 0.5) * S, PAD + (y + 0.5) * S],
   }
 }
@@ -124,6 +128,24 @@ await dc.clickU(PAD + 13.5 * S, PAD + 19.4 * S)
 
 await da.waitStatus((s) => s.includes('你的回合'), '三方布置完轮到蓝方(A)')
 console.log('ok: 三人布置完成，蓝方先手')
+
+// 房主打开光路后，三端都应显示各个家的四向光线，包括穿过家镜的三束。
+await A.getByLabel('允许显示光路', { exact: true }).check()
+for (const [tag, page, driver] of [['A', A, da], ['B', B, db], ['C', C, dc]]) {
+  for (const [x, y] of [[6, 6], [20, 8], [13, 20]]) {
+    const [cx, cy] = driver.cell(x, y)
+    await driver.hoverU(cx, cy)
+    await waitFor(async () => {
+      const path = await page.locator('.laser-core').getAttribute('d')
+      return [[1, 0], [0, 1], [-1, 0], [0, -1]].every(([dx, dy]) => {
+        const nx = cx + dx * S
+        const ny = cy + dy * S
+        return path.includes(`M${cx} ${cy}L${nx} ${ny}`) || path.includes(`M${nx} ${ny}L${cx} ${cy}`)
+      })
+    }, `${tag} 页的家 (${x},${y}) 显示四向光线`)
+  }
+}
+console.log('ok: 三端光路显示一致，每个家均向四个方向发光')
 
 // 回合轮转：A 落子 → B 回合 → C 回合 → A 回合
 await da.clickU(PAD + 10.5 * S, PAD + 10 * S) // 蓝边镜 h:10:10

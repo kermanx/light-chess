@@ -113,7 +113,7 @@ export const isValidHomeCell = (x: number, y: number, _color: Color) => {
 
 /**
  * 出口合法性：不能朝向棋盘外（家在最外圈且出口贴边）。
- * 否则激光一出家门就消失，且敌方激光也无法从棋盘外进入该出口——这家永远打不死。
+ * 否则敌方激光无法从棋盘外进入唯一没有镜子的开口——这家永远打不死。
  */
 export const isValidExit = (x: number, y: number, dir: Dir) => {
   const nx = x + DX[dir]

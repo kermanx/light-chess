@@ -36,7 +36,7 @@ dispatch({ kind: 'edge', color: 'red', id: 'h:20:20' })
 dispatch({ kind: 'edge', color: 'blue', id: 'v:4:0' }) // 出口格左边 → 边框补顶边，隔开
 assert(!state.edges.has('v:4:0'), '边界口袋第二面（围死）被 dispatch 拒绝')
 
-// 场景 B2：最外圈格子的出口不能朝向棋盘外（否则激光出界即消失，且家无法被命中）
+// 场景 B2：最外圈格子的出口不能朝向棋盘外（否则敌方无法进入开口，家无法被命中）
 startLocal()
 dispatch({ kind: 'setup', color: 'blue', home: { x: 0, y: 5, dir: 2 } }) // 左边缘，出口朝左出界
 assert(!state.homes.blue, '左边缘的家出口朝棋盘外被拒绝')
@@ -248,5 +248,12 @@ dispatch({ kind: 'edge', color: 'blue', id: 'h:12:12' })
 dispatch({ kind: 'undo', color: 'blue', frame: topUndoFrame()! })
 assert(!state.edges.has('h:12:12') && state.current === 'blue', '撤回自己开启后下的那手')
 assert(undoDepth.value === 2 && state.undoFloor === 1, '撤回到底线之上为止')
+
+// 场景 I：从家镜一侧发出的光也参与回合开头的胜负结算。
+startLocal(2)
+dispatch({ kind: 'setup', color: 'blue', home: { x: 4, y: 4, dir: 0 } })
+dispatch({ kind: 'setup', color: 'red', home: { x: 4, y: 8, dir: 3 } })
+assert(state.phase === 'over' && state.winner === 'blue' && state.dead.includes('red'),
+  '蓝光从下方家镜穿出并命中红家，开局回合结算蓝胜')
 
 console.log('全部通过')

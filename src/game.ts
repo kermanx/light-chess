@@ -29,7 +29,7 @@ export interface Pt {
 export interface Home {
   x: number
   y: number
-  /** 激光发射方向（家中唯一没放镜子的那条边） */
+  /** 家的开口方向（唯一没放镜子的那条边；家向四个方向发光） */
   dir: Dir
 }
 
@@ -151,7 +151,7 @@ interface Node {
 }
 
 /**
- * 模拟 color 方从家发射的激光。
+ * 模拟 color 方从家中心向四个方向发射的激光。
  * 己方镜子为半反射（穿过与反射两条分支都走），其他颜色的镜子必须反射。
  * 家不是特殊格子：自己的激光也能穿过/反射自己家的镜子（半反射），
  * 进入任一非己方的家即命中（被吸收，该分支终止）。
@@ -172,25 +172,16 @@ export function simulate(board: BoardState, color: Color): SimResult {
   const addSeg = (p: Pt, q: Pt) => segSet.set(segKey(p, q), [p, q])
 
   const homePt = center(home.x, home.y)
-  const fx = home.x + DX[home.dir]
-  const fy = home.y + DY[home.dir]
-  if (!inside(fx, fy, size)) {
-    // 发射口朝棋盘外，激光直接消失
-    const mid = edgeMid(edgeOf(home.x, home.y, home.dir))
-    addSeg(homePt, mid)
-    return { hit: false, hits: [], segments: [...segSet.values()], hitPath: null }
-  }
-
-  const nodes: Node[] = []
-  const visited = new Set<string>([stateKey(home.x, home.y, home.dir)])
+  // 从家中起步，让三面家镜也按普通己方镜处理：穿过和反射都继续追踪。
+  const nodes: Node[] = ([0, 1, 2, 3] as Dir[]).map((dir) => ({
+    x: home.x, y: home.y, dir, pts: [], parent: -1,
+  }))
+  const visited = new Set<string>()
   let hit = false
   const hits: Color[] = []
   let hitNode = -1
 
-  // 根节点：激光进入的第一个格子
-  nodes.push({ x: fx, y: fy, dir: home.dir, pts: [center(fx, fy)], parent: -1 })
-  addSeg(homePt, center(fx, fy))
-  const stack = [0]
+  const stack = nodes.map((_, i) => i)
 
   while (stack.length > 0) {
     const ni = stack.pop()!
