@@ -367,21 +367,29 @@ function apply(a: Action) {
 
 // 由 net 层注入，避免 store 依赖 WebSocket
 let sender: ((a: Action) => void) | null = null
-export function setSender(fn: ((a: Action) => void) | null) {
+let waitForHost = false
+export function setSender(fn: ((a: Action) => void) | null, deferLocal = false) {
   sender = fn
+  waitForHost = deferLocal
 }
 
 /** 本地操作入口：校验 → 应用 →（联机时）广播 */
 export function dispatch(a: Action) {
   if (!validate(a, true)) return
+  // 中继客人的动作由房主确认后通过 applyRemote 应用，避免刷新/重连时局面分叉。
+  if (state.mode === 'online' && waitForHost) {
+    sender?.(a)
+    return
+  }
   apply(a)
   if (state.mode === 'online') sender?.(a)
 }
 
 /** 远端操作入口 */
 export function applyRemote(a: Action) {
-  if (!validate(a, false)) return
+  if (!validate(a, false)) return false
   apply(a)
+  return true
 }
 
 /** 当前本地玩家是否可以操作 */

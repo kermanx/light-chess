@@ -14,12 +14,14 @@ const MAX_PAYLOAD = 512 * 1024
 type Packet =
   | { from: string; kind: 'hello' }
   | { from: string; kind: 'bye' }
+  | { from: string; kind: 'offline' }
   | { from: string; kind: 'data'; to: string; seq: number; data: unknown }
   | { from: string; kind: 'ack'; to: string; seq: number }
 
 interface Peer {
   seen: number
   online: boolean
+  paths: Set<MqttClient>
   sent: number
   received: number
   pending: Map<number, Packet>
@@ -60,13 +62,27 @@ export async function joinRelayRoom(appId: string, roomId: string): Promise<Rela
   let outgoing = Promise.resolve()
   let incoming = Promise.resolve()
 
+  async function encode(packet: Packet) {
+    const iv = crypto.getRandomValues(new Uint8Array(12))
+    const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, bytes(JSON.stringify(packet)))
+    return `${base64(iv)}.${base64(new Uint8Array(ciphertext))}`
+  }
+  // 浏览器刷新/关闭来不及执行异步清理，由 broker 的遗嘱消息立即通知对端。
+  const offlinePayload = await encode({ from: self, kind: 'offline' })
+
+  function losePath(id: string, peer: Peer, client: MqttClient) {
+    peer.paths.delete(client)
+    if (peer.online && peer.paths.size === 0) {
+      peer.online = false
+      room.onPeerLeave(id)
+    }
+  }
+
   // 串行加密/发布和解密/处理，避免异步 WebCrypto 改变消息顺序。
   function publish(packet: Packet): Promise<void> {
     outgoing = outgoing.then(async () => {
       if (closed) return
-      const iv = crypto.getRandomValues(new Uint8Array(12))
-      const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, bytes(JSON.stringify(packet)))
-      const payload = `${base64(iv)}.${base64(new Uint8Array(ciphertext))}`
+      const payload = await encode(packet)
       for (const client of subscribed) {
         // 可靠性由对端 ACK 保证；broker ACK 仅证明中继收到了，不能证明玩家处理了。
         if (client.connected) client.publish(topic, payload, { qos: 0, retain: false }, () => {})
@@ -88,14 +104,20 @@ export async function joinRelayRoom(appId: string, roomId: string): Promise<Rela
       if (peers.delete(packet.from)) room.onPeerLeave(packet.from)
       return
     }
+    if (packet.kind === 'offline') {
+      const peer = peers.get(packet.from)
+      if (peer) losePath(packet.from, peer, client)
+      return
+    }
     if (!['hello', 'data', 'ack'].includes(packet.kind)) return
     let peer = peers.get(packet.from)
     if (!peer) {
       // 必须先收到 presence，避免旧数据包在离开之后重新创建对端。
       if (packet.kind !== 'hello') return
-      peer = { seen: Date.now(), online: false, sent: 0, received: 0, pending: new Map(), buffer: new Map() }
+      peer = { seen: Date.now(), online: false, paths: new Set(), sent: 0, received: 0, pending: new Map(), buffer: new Map() }
       peers.set(packet.from, peer)
     }
+    peer.paths.add(client)
     if (!peer.online) {
       peer.online = true
       hello()
@@ -150,7 +172,13 @@ export async function joinRelayRoom(appId: string, roomId: string): Promise<Rela
   }
 
   for (const url of urls) {
-    const client = mqtt.connect(url, { clean: true, connectTimeout: 8000, reconnectPeriod: 3000, queueQoSZero: false })
+    const client = mqtt.connect(url, {
+      clean: true,
+      connectTimeout: 8000,
+      reconnectPeriod: 3000,
+      queueQoSZero: false,
+      will: { topic, payload: offlinePayload, qos: 0, retain: false },
+    })
     clients.push(client)
     client.on('connect', () => {
       client.subscribe(topic, { qos: 0 }, (error, grants) => {
@@ -159,7 +187,11 @@ export async function joinRelayRoom(appId: string, roomId: string): Promise<Rela
         hello()
       })
     })
-    client.on('close', () => { subscribed.delete(client); verified.delete(client) })
+    client.on('close', () => {
+      subscribed.delete(client)
+      verified.delete(client)
+      if (!closed) for (const [id, peer] of peers) losePath(id, peer, client)
+    })
     client.on('error', () => { verified.delete(client) })
     client.on('message', (receivedTopic, payload, meta) => {
       if (closed || receivedTopic !== topic || meta.retain || payload.length > MAX_PAYLOAD) return
@@ -181,6 +213,7 @@ export async function joinRelayRoom(appId: string, roomId: string): Promise<Rela
       if (peer.online && Date.now() - peer.seen > PEER_TIMEOUT) {
         // 暂时掉线保留序号；同一页面网络恢复时继续原来的可靠消息流。
         peer.online = false
+        peer.paths.clear()
         room.onPeerLeave(id)
       }
     }

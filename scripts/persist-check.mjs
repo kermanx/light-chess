@@ -125,7 +125,7 @@ function makeDriver(page) {
   await A.waitForSelector('svg.board-svg')
   const stA = await waitFor(async () => {
     const s = await da.status()
-    return s.includes('等待') && s
+    return s.includes('等待') && !s.includes('掉线') && s
   }, 'A 刷新后重连并等待红方落子')
   console.log('ok: 联机刷新后局面恢复并重连（A 状态:', stA, '）')
 
@@ -149,7 +149,7 @@ function makeDriver(page) {
   await B.waitForSelector('svg.board-svg')
   const stB2 = await waitFor(async () => {
     const s = await db.status()
-    return s.includes('等待') && s
+    return s.includes('等待') && !s.includes('掉线') && s
   }, 'B 刷新后重连并等待蓝方落子')
   console.log('ok: 加入方刷新后局面恢复并重连（B 状态:', stB2, '）')
 

@@ -201,7 +201,7 @@ const send = (msg: Msg, target?: string) => {
 
 const sendAct = (act: Action) => {
   // 中继模式由房主转发动作：开局只需所有人连上房主，不必等待客人两两发现。
-  // origin 避免发送者再次执行本地已经应用的动作（尤其是撤回）。
+  // origin 保留给旧版中继客户端去重；新版客人等房主确认才应用动作。
   if (relayRoom) {
     if (isHost) send({ t: 'act', act, origin: token })
     else if (hostPeerId) send({ t: 'act', act, origin: token }, hostPeerId)
@@ -220,8 +220,8 @@ function clearHello() {
   joinTimer = null
 }
 
-function sendHello() {
-  send({ t: 'hello', token, want: wantColor })
+function sendHello(target?: string) {
+  send({ t: 'hello', token, want: wantColor }, target)
 }
 
 // ---------- 房主侧 ----------
@@ -356,8 +356,7 @@ function handle(msg: Msg, peerId: string) {
     case 'act':
       if (relayRoom) {
         if (!isHost && peerId !== hostPeerId) return
-        if (msg.origin !== token) applyRemote(msg.act)
-        if (isHost) send(msg)
+        if (applyRemote(msg.act) && isHost) send(msg)
       } else applyRemote(msg.act)
       break
     case 'sync':
@@ -380,15 +379,16 @@ async function openRoom(code: string) {
     relayRoom.onMessage = (msg, peerId) => {
       try { handle(msg as Msg, peerId) } catch { /* 忽略异常消息 */ }
     }
-    relayRoom.onPeerJoin = () => {
-      if (!isHost) sendHello()
+    relayRoom.onPeerJoin = (peerId) => {
+      // 只向新对端打招呼；发现另一个客人不能触发房主重复发送快照。
+      if (!isHost) sendHello(peerId)
     }
     relayRoom.onPeerLeave = (peerId) => {
       if (isHost) hostOnPeerLeave(peerId)
       else if (inGame() && peerId === hostPeerId) state.peerLeft = true
     }
     trackRelays(code)
-    setSender(sendAct)
+    setSender(sendAct, !isHost)
     return
   }
   const urls = await relayUrls(sig)

@@ -49,6 +49,9 @@ try {
         if (body.kind === 'data' && body.data?.t === 'act' && body.data.act.kind === 'board-size') {
           return setTimeout(() => callback(null), 2000)
         }
+        if (body.kind === 'data' && body.data?.t === 'act' && body.data.act.kind === 'setup') {
+          return setTimeout(() => callback(null), 200)
+        }
         return callback(null)
       }
       if (packet.topic !== topic) return callback(null)
@@ -121,15 +124,17 @@ try {
   // 对端超时后重连仍使用原来的序号，不能丢掉在途消息或再次执行旧消息。
   await A.clock.install()
   await B.context().setOffline(true)
-  await A.evaluate(() => window.room.send(25))
   await A.clock.fastForward(31000)
   await A.waitForFunction(() => window.leaves === 1)
   await B.context().setOffline(false)
   await A.waitForFunction(() => window.joins === 2)
+  await A.evaluate(() => window.room.send(25))
   await B.waitForFunction(() => window.received.length === 25)
   assert.deepEqual(await B.evaluate(() => window.received), Array.from({ length: 25 }, (_, i) => i + 1))
+  await B.close()
+  await A.waitForFunction(() => window.leaves === 2, null, { timeout: 5000 })
   assert.deepEqual(errors, [])
-  console.log('ok: 掉线超时后恢复，保留消息序号并补发未确认消息')
+  console.log('ok: 遗嘱消息即时通知掉线，重连后保留消息序号')
 
   const gamePages = []
   for (let i = 0; i < 2; i++) {
@@ -158,9 +163,9 @@ try {
     const { state, dispatch } = await import('/src/store.ts')
     const settings = { size: state.size, undo: state.allowUndo }
     dispatch({ kind: 'setup', color: state.myColor, home: { x: 6, y: 6, dir: 1 } })
-    return settings
+    return { ...settings, awaitingHost: !state.homes.red }
   })
-  assert.deepEqual(initial, { size: 24, undo: true }, '棋盘开放操作时必须已经应用房主设置')
+  assert.deepEqual(initial, { size: 24, undo: true, awaitingHost: true }, '开局设置完整，落子等待房主确认')
   await host.waitForFunction(async () => Boolean((await import('/src/store.ts')).state.homes.red))
   await new Promise(resolve => setTimeout(resolve, 2500))
   assert.deepEqual(await guest.evaluate(async () => (await import('/src/store.ts')).state.homes.red), { x: 6, y: 6, dir: 1 })
