@@ -250,4 +250,51 @@ assert(cornerResult.hit, '角落的家仍能向下穿过己方家镜命中红家
 assert(hasSegment(cornerResult, { x: 0.5, y: 0.5 }, { x: 0, y: 0.5 }) &&
   hasSegment(cornerResult, { x: 0.5, y: 0.5 }, { x: 0.5, y: 0 }), '角落向左和向上的光止于边界')
 
+// 场景 13：斜镜也是围墙，混合边镜/斜镜形成的封闭区域必须被识别。
+const mixedEdges = new Map(board1.edges)
+mixedEdges.set('h:5:4', { color: 'blue' })
+const mixedDiags = new Map<string, { color: 'blue' | 'red'; ori: '/' | '\\' }>([
+  ['5,4', { color: 'blue', ori: '/' }],
+])
+assert(createsEnclosure(mixedEdges, 'blue', board1.homes, 30, mixedDiags),
+  '同色斜镜和边镜共同围住蓝家时非法')
+mixedDiags.set('5,4', { color: 'blue', ori: '\\' })
+assert(!createsEnclosure(mixedEdges, 'blue', board1.homes, 30, mixedDiags),
+  '反向斜镜留下通道，不误判为围住')
+mixedDiags.set('5,4', { color: 'red', ori: '/' })
+assert(!createsEnclosure(mixedEdges, 'blue', board1.homes, 30, mixedDiags) &&
+  !createsEnclosure(mixedEdges, 'red', board1.homes, 30, mixedDiags),
+  '不同颜色的镜子分别计算，不能混成围墙')
+
+const cornerDiags = new Map<string, { color: 'blue'; ori: '/' }>([['1,0', { color: 'blue', ori: '/' }]])
+assert(createsEnclosure(corner.edges, 'blue', corner.homes, corner.size, cornerDiags),
+  '斜镜和棋盘边框一起围住角落基地时非法')
+
+const diamond = new Map<string, { color: 'yellow'; ori: '/' | '\\' }>([
+  ['4,3', { color: 'yellow', ori: '\\' }], ['5,4', { color: 'yellow', ori: '\\' }],
+  ['5,5', { color: 'yellow', ori: '/' }], ['4,6', { color: 'yellow', ori: '/' }],
+  ['3,6', { color: 'yellow', ori: '\\' }], ['2,5', { color: 'yellow', ori: '\\' }],
+  ['2,4', { color: 'yellow', ori: '/' }], ['3,3', { color: 'yellow', ori: '/' }],
+])
+assert(createsEnclosure(board1.edges, 'yellow', board1.homes, 30, diamond),
+  '纯斜镜首尾相接围住其他颜色的基地时非法')
+diamond.delete('3,3')
+assert(!createsEnclosure(board1.edges, 'yellow', board1.homes, 30, diamond),
+  '斜镜环未闭合时仍允许')
+
+// 场景 14：只检查基地彼此连通；同一个环把所有基地一起圈入仍然合法。
+const sharedRing = new Map<string, { color: 'yellow' }>()
+for (let x = 2; x < 10; x++) {
+  sharedRing.set(`h:${x}:2`, { color: 'yellow' })
+  sharedRing.set(`h:${x}:9`, { color: 'yellow' })
+}
+for (let y = 2; y < 9; y++) {
+  sharedRing.set(`v:2:${y}`, { color: 'yellow' })
+  sharedRing.set(`v:10:${y}`, { color: 'yellow' })
+}
+assert(!createsEnclosure(sharedRing, 'yellow', board1.homes, 30), '所有基地一起被圈入时允许')
+assert(createsEnclosure(sharedRing, 'yellow', {
+  ...board1.homes, red: { x: 12, y: 12, dir: 2 },
+}, 30), '同一个环把一个基地隔在外面时禁止')
+
 console.log('全部通过')

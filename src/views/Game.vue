@@ -26,6 +26,7 @@ import {
   topUndoFrame,
   undoDepth,
   wouldEnclose,
+  wouldEncloseDiag,
 } from '../store'
 
 const S = 28 // 格距（px）
@@ -410,6 +411,11 @@ const ghostCell = computed(() => {
   return c
 })
 
+const ghostCellBad = computed(() => {
+  const c = ghostCell.value
+  return !!c && wouldEncloseDiag(c.x, c.y, shiftHeld.value ? '\\' : '/', previewColor.value)
+})
+
 /** setup 阶段悬停格子时的家预览 */
 const ghostHome = computed(() => {
   const c = hoverCell.value
@@ -432,7 +438,7 @@ const statusColor = computed<Color | null>(() => {
 
 const statusText = computed(() => {
   if (state.peerLeft) return '有玩家掉线，等待重连…'
-  if (ghostEdgeBad.value) return '此处放镜会把某对玩家的家隔开，不能放'
+  if (ghostEdgeBad.value || ghostCellBad.value) return '此处放镜会把某对玩家的家隔开，不能放'
   if (state.phase === 'over') return `${name(state.winner!)}获胜！`
   if (state.phase === 'setup') {
     if (state.mode === 'online') {
@@ -646,8 +652,9 @@ const statusText = computed(() => {
         <line
           v-if="ghostCell"
           v-bind="diagLine(ghostCell.x, ghostCell.y, shiftHeld ? '\\' : '/')"
-          :stroke="COLORS[previewColor]"
-          stroke-opacity="0.45"
+          :stroke="ghostCellBad ? '#b91c1c' : COLORS[previewColor]"
+          :stroke-opacity="ghostCellBad ? 0.55 : 0.45"
+          :stroke-dasharray="ghostCellBad ? '5 4' : ''"
           stroke-width="2.4"
           stroke-linecap="round"
           class="no-events"
@@ -775,7 +782,7 @@ const statusText = computed(() => {
         <p><b>开局</b>：各选一个格子当家并指定开口，其余 3 条边自动放上你的镜子。家向四个方向发光，光线也能穿过自己的家镜。</p>
         <p><b>放镜</b>：轮流每回合放一面，不可移除。点网格边放边镜；左键格子放「/」、右键放「\」斜镜，Shift 反向。</p>
         <p><b>反射</b>：自己的镜子对自己半反射（穿过+反射），别人的镜子只反射。</p>
-        <p><b>限制</b>：同色镜子连同边框不能隔开任意两家，否则禁止放置。</p>
+        <p><b>限制</b>：每种颜色的边镜、斜镜分别连同边框，不能把仍在场的基地彼此隔开；所有基地仍在同一区域时允许。</p>
         <p><b>结算</b>：轮到谁就在其回合开头结算其激光；被打中出局（✕）。双人打中即胜，多人活到最后获胜。</p>
       </div>
     </div>

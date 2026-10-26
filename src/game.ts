@@ -99,36 +99,47 @@ export function edgeMid(id: string): Pt {
 const inside = (x: number, y: number, size: number) => x >= 0 && y >= 0 && x < size && y < size
 
 /**
- * 隔开判定：把 color 色的边镜与棋盘边框视为墙，从任一家出发洪泛，
+ * 隔开判定：把 color 色的边镜、斜镜与棋盘边框视为墙，从任一家出发洪泛，
  * 若存在任何一个家不可达，即 color 色镜子把某一对玩家的家隔开了（非法）。
- * 斜镜不吸收激光，不算墙。
+ * 每格分为上、右、下、左四个三角区域，斜镜只连通它同一侧的两个区域。
+ * 其他颜色的镜子不参与本次判定；所有基地仍在同一区域时允许。
  */
 export function createsEnclosure(
   edges: Map<string, Mirror>,
   color: Color,
   homes: Partial<Record<Color, Home>>,
   size: number,
+  diags: Map<string, Diag> = new Map(),
 ): boolean {
   const list = Object.values(homes)
   if (list.length < 2) return false
-  const seen = new Set<string>([`${list[0].x},${list[0].y}`])
-  const queue: [number, number][] = [[list[0].x, list[0].y]]
+  const sectorId = (x: number, y: number, d: Dir) => (y * size + x) * 4 + d
+  const seen = new Uint8Array(size * size * 4)
+  const queue = [sectorId(list[0].x, list[0].y, 0)]
   while (queue.length > 0) {
-    const [x, y] = queue.pop()!
-    for (const d of [0, 1, 2, 3] as Dir[]) {
+    const id = queue.pop()!
+    if (seen[id]) continue
+    const cell = Math.floor(id / 4)
+    const x = cell % size
+    const y = Math.floor(cell / size)
+    const entry = (id % 4) as Dir
+    const diag = diags.get(`${x},${y}`)
+    const dirs: Dir[] = diag?.color === color
+      ? [entry, (diag.ori === '/' ? entry ^ 1 : 3 - entry) as Dir]
+      : [0, 1, 2, 3]
+    for (const d of dirs) seen[sectorId(x, y, d)] = 1
+    for (const d of dirs) {
       const nx = x + DX[d]
       const ny = y + DY[d]
       if (!inside(nx, ny, size)) continue // 边框是墙
       const m = edges.get(edgeOf(x, y, d))
       if (m && m.color === color) continue // 该颜色的镜子是墙
-      const key = `${nx},${ny}`
-      if (!seen.has(key)) {
-        seen.add(key)
-        queue.push([nx, ny])
-      }
+      const next = sectorId(nx, ny, opp(d))
+      if (!seen[next]) queue.push(next)
     }
   }
-  return list.some((h) => !seen.has(`${h.x},${h.y}`))
+  // 基地格不允许放斜镜，因此任一三角区域可代表整个基地。
+  return list.some((h) => !seen[sectorId(h.x, h.y, 0)])
 }
 
 const center = (x: number, y: number): Pt => ({ x: x + 0.5, y: y + 0.5 })

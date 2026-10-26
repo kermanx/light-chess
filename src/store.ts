@@ -134,7 +134,14 @@ const aliveHomes = () => {
 export const wouldEnclose = (id: string, color: Color) => {
   const trial = new Map(state.edges)
   trial.set(id, { color })
-  return createsEnclosure(trial, color, aliveHomes(), state.size)
+  return createsEnclosure(trial, color, aliveHomes(), state.size, state.diags)
+}
+
+/** 斜镜与边镜采用同一套隔开判定，按本次落子的颜色单独计算。 */
+export const wouldEncloseDiag = (x: number, y: number, ori: Ori, color: Color) => {
+  const trial = new Map(state.diags)
+  trial.set(`${x},${y}`, { color, ori })
+  return createsEnclosure(state.edges, color, aliveHomes(), state.size, trial)
 }
 
 /** 棋盘尺寸合法范围 */
@@ -297,7 +304,8 @@ function validate(a: Action, local: boolean): boolean {
     if (isPortEdge(a.id) || state.edges.has(a.id)) return false
     return !wouldEnclose(a.id, a.color)
   }
-  return !isHomeCell(a.x, a.y) && !state.diags.has(`${a.x},${a.y}`)
+  return !isHomeCell(a.x, a.y) && !state.diags.has(`${a.x},${a.y}`) &&
+    !wouldEncloseDiag(a.x, a.y, a.ori, a.color)
 }
 
 function apply(a: Action) {

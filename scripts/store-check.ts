@@ -1,5 +1,5 @@
 // store 层（dispatch 全链路）围死校验复现测试
-import { applyRemote, dispatch, startLocal, state, topUndoFrame, undoDepth, wouldEnclose } from '../src/store'
+import { applyRemote, dispatch, startLocal, state, topUndoFrame, undoDepth, wouldEnclose, wouldEncloseDiag } from '../src/store'
 
 function assert(cond: boolean, msg: string) {
   if (!cond) throw new Error(`FAIL: ${msg}`)
@@ -255,5 +255,33 @@ dispatch({ kind: 'setup', color: 'blue', home: { x: 4, y: 4, dir: 0 } })
 dispatch({ kind: 'setup', color: 'red', home: { x: 4, y: 8, dir: 3 } })
 assert(state.phase === 'over' && state.winner === 'blue' && state.dead.includes('red'),
   '蓝光从下方家镜穿出并命中红家，开局回合结算蓝胜')
+
+// 场景 J：边镜与斜镜共同封口，斜镜落子、远端动作和预览都必须拒绝。
+startLocal(2)
+dispatch({ kind: 'setup', color: 'blue', home: { x: 10, y: 12, dir: 0 } })
+dispatch({ kind: 'setup', color: 'red', home: { x: 20, y: 16, dir: 2 } })
+dispatch({ kind: 'edge', color: 'blue', id: 'h:11:12' })
+dispatch({ kind: 'edge', color: 'red', id: 'h:25:25' })
+assert(wouldEncloseDiag(11, 12, '/', 'blue'), '斜镜预览识别封口')
+assert(!wouldEncloseDiag(11, 12, '\\', 'blue'), '反向斜镜未封口，允许预览')
+assert(!wouldEncloseDiag(11, 12, '/', 'red'), '预览按颜色分别计算')
+const beforeEnclosure = undoDepth.value
+dispatch({ kind: 'diag', color: 'blue', x: 11, y: 12, ori: '/' })
+assert(!state.diags.has('11,12') && state.current === 'blue' && undoDepth.value === beforeEnclosure,
+  '非法斜镜不落下、不消耗回合、不进入撤回历史')
+assert(!applyRemote({ kind: 'diag', color: 'blue', x: 11, y: 12, ori: '/' }),
+  '远端发来的非法斜镜同样被拒绝')
+dispatch({ kind: 'diag', color: 'blue', x: 11, y: 12, ori: '\\' })
+assert(state.diags.get('11,12')?.ori === '\\' && state.current === 'red', '换方向后合法斜镜正常落下')
+
+// 场景 K：先下斜镜，最后由边镜封口也必须拒绝。
+startLocal(2)
+dispatch({ kind: 'setup', color: 'blue', home: { x: 10, y: 12, dir: 0 } })
+dispatch({ kind: 'setup', color: 'red', home: { x: 20, y: 16, dir: 2 } })
+dispatch({ kind: 'diag', color: 'blue', x: 11, y: 12, ori: '/' })
+dispatch({ kind: 'edge', color: 'red', id: 'h:25:25' })
+assert(wouldEnclose('h:11:12', 'blue'), '边镜预览包含已存在的斜镜')
+dispatch({ kind: 'edge', color: 'blue', id: 'h:11:12' })
+assert(!state.edges.has('h:11:12') && state.current === 'blue', '与斜镜共同封口的边镜被拒绝')
 
 console.log('全部通过')

@@ -27,6 +27,8 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - name: Check multiplayer without WebRTC
         run: node scripts/relay-check.mjs
+      - name: Check enclosure rule interactions
+        run: node scripts/enclosure-check.mjs
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

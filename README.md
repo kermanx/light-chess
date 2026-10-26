@@ -11,7 +11,7 @@
 - 之后按座位顺序轮流放镜子（每回合一个，不可移除）：点击网格边放边镜，左键格子放「/」斜镜，右键放「\」斜镜。
 - 己方镜子对己方激光是半反射（既穿过又反射），其他颜色的镜子必须反射。
 - 命中不立即生效：在每位玩家回合开头结算其激光，被击中的玩家出局（家变为 ✕）；双人局被击中即判负，多人局只剩一人时获胜。
-- 任一种颜色的镜子连同边框不能把任意两名存活玩家的家隔开（非法放置会被拒绝）。
+- 每种颜色的边镜、斜镜分别连同边框，不能把任意两名存活玩家的家隔开（非法放置会被拒绝）；所有基地仍在同一区域时允许。
 - 支持 2~4 人，单机同屏或联机（创建/加入 4 位房间号）。
 - 创建房间默认勾选「公开」：公开房间会广播到 WebSocket 公共大厅，其他玩家在加入页可直接看到并点击进入。
 - 新房号以 `3` 开头，棋局消息经 AES-GCM 加密后在多个 broker 上转发，并按对端编号、确认、重传、去重和排序。房号以 `1`/`2` 开头的旧房间仍走 Nostr/MQTT P2P；切换连接方式后需要重新分享链接。四位房号方便加入，不是私密口令。
@@ -47,6 +47,7 @@ localStorage.setItem('light-chess:mqtt-relays', 'ws://localhost:8788')
 npx tsx scripts/sim-check.ts      # 光路模拟单元场景
 npx tsx scripts/store-check.ts    # 规则/回合/围死判定（纯逻辑）
 node scripts/visual-check.mjs     # 单机 UI 冒烟（需 dev 服务器）
+node scripts/enclosure-check.mjs  # 边镜/斜镜禁围预览与落子（自带服务）
 node scripts/mp-check.mjs         # 三人联机端到端（需 dev 服务器 + 本地中继）
 node scripts/persist-check.mjs    # 刷新恢复（需 dev 服务器 + 本地中继）
 node scripts/relay-check.mjs      # 禁用 WebRTC；丢包/乱序/重复/中继故障回归（自带服务）
