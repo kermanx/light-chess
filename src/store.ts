@@ -1,4 +1,5 @@
 import { computed, reactive, ref, watch } from 'vue'
+import { defaultClockSettings, freshClock, normalizeClockSettings, timeLeft, type ClockSettings, type ClockState, type ClockSync } from './clock'
 import {
   createsEnclosure,
   DEFAULT_SIZE,
@@ -33,6 +34,8 @@ export interface UndoFrame {
   winner: Color | null
   phase: Phase
   lastMove: LastMove
+  clock?: ClockState
+  timedOut?: Color[]
 }
 
 export type Action =
@@ -44,6 +47,8 @@ export type Action =
   | { kind: 'undo'; color: Color; frame: UndoFrame }
   | { kind: 'board-size'; color: Color; size: number }
   | { kind: 'boundary-setting'; color: Color; enabled: boolean }
+  | { kind: 'clock-setting'; color: Color; settings: ClockSettings }
+  | { kind: 'timeout'; color: Color; turn: number }
   | { kind: 'restart'; color: Color }
 
 export const state = reactive({
@@ -71,6 +76,9 @@ export const state = reactive({
   allowUndo: false,
   /** 开局前可改；开启时边界对所有颜色的光全反射 */
   boundaryReflects: true,
+  clockSettings: defaultClockSettings(),
+  clock: freshClock(defaultClockSettings()),
+  timedOut: [] as Color[],
   /** 可撤回的底线（历史栈深度）：开启「允许撤回」时锁定，开启之前下的步骤不可撤 */
   undoFloor: 0,
   /** 上一步放置的镜子（用于加粗高亮；家的自动镜不算） */
@@ -167,6 +175,8 @@ const pushFrame = () => {
     winner: state.winner,
     phase: state.phase,
     lastMove: state.lastMove,
+    clock: { ...state.clock, remaining: { ...state.clock.remaining } },
+    timedOut: [...state.timedOut],
   })
   undoDepth.value = moveHistory.length
 }
@@ -199,6 +209,8 @@ function resetBoard() {
   state.winner = null
   state.dead = []
   state.lastMove = null
+  state.timedOut = []
+  state.clock = freshClock(state.clockSettings, state.clock.revision + 1)
   clearHistory()
   state.phase = 'setup'
 }
@@ -247,6 +259,9 @@ export function toLobby() {
   state.laserAllowed = false
   state.allowUndo = false
   state.boundaryReflects = true
+  state.clockSettings = defaultClockSettings()
+  state.clock = freshClock(state.clockSettings, state.clock.revision + 1)
+  state.timedOut = []
   state.size = DEFAULT_SIZE
 }
 
@@ -270,7 +285,80 @@ function settleTurn() {
   }
 }
 
+/** 显示时钟独立于棋局状态，避免每次刷新数字都保存整盘棋。 */
+export const clockNow = ref(Date.now())
+let clockOffset = 0
+let clockSender: (() => void) | null = null
+export const isClockAuthority = () => state.mode !== 'online' || state.myColor === state.players[0]
+const clockTime = (now = Date.now()) => isClockAuthority() ? now : now - clockOffset
+export const remainingTime = (color: Color, now = clockNow.value) =>
+  timeLeft(state.clock, color, state.current, clockTime(now))
+
+function holdClock(at: number) {
+  if (state.clock.runningSince === null) return
+  state.clock.remaining[state.current] = timeLeft(state.clock, state.current, state.current, at)
+  state.clock.runningSince = null
+}
+
+function startTurnClock(at: number) {
+  state.clock.turn++
+  state.clock.revision++
+  state.clock.runningSince = state.clockSettings.enabled && state.phase === 'play' && !state.peerLeft ? at : null
+}
+
+export function serializeClock(now = Date.now()): ClockSync {
+  const at = clockTime(now)
+  const remaining = { ...state.clock.remaining }
+  remaining[state.current] = timeLeft(state.clock, state.current, state.current, at)
+  return { ...state.clock, remaining, runningSince: state.clock.runningSince === null ? null : at, at }
+}
+
+export function applyClockSync(sync: ClockSync, force = false) {
+  if (!force && sync.revision < state.clock.revision) return
+  clockOffset = isClockAuthority() ? 0 : Date.now() - sync.at
+  state.clock = {
+    remaining: { ...sync.remaining }, runningSince: sync.runningSince,
+    turn: sync.turn, revision: sync.revision,
+  }
+  clockNow.value = Date.now()
+}
+
+export function setClockSender(fn: (() => void) | null) { clockSender = fn }
+export function broadcastClock() {
+  if (isClockAuthority() && state.mode === 'online' && state.clockSettings.enabled) clockSender?.()
+}
+
+/** 即使后台标签页延迟执行，也按真实截止时刻结算，不能靠延迟的落子抢救已超时棋钟。 */
+export function tickClock(now = Date.now()): boolean {
+  clockNow.value = now
+  if (!isClockAuthority() || !state.clockSettings.enabled || state.peerLeft) return false
+  let expired = false
+  while (state.phase === 'play' && state.clock.runningSince !== null &&
+    timeLeft(state.clock, state.current, state.current, now) <= 0) {
+    const action: Action = { kind: 'timeout', color: state.current, turn: state.clock.turn }
+    const deadline = state.clock.runningSince + state.clock.remaining[state.current]
+    apply(action, deadline)
+    if (state.mode === 'online') sender?.(action)
+    expired = true
+  }
+  return expired
+}
+
+watch(() => state.peerLeft, (paused) => {
+  if (!state.clockSettings.enabled || state.phase !== 'play') return
+  if (paused) holdClock(clockTime())
+  else if (isClockAuthority()) state.clock.runningSince = Date.now()
+  if (isClockAuthority()) {
+    state.clock.revision++
+    broadcastClock()
+  }
+}, { flush: 'sync' })
+
 function validate(a: Action, local: boolean): boolean {
+  if (a.kind === 'timeout') {
+    return !local && !isClockAuthority() && state.phase === 'play' &&
+      a.color === state.current && a.turn === state.clock.turn
+  }
   if (a.kind === 'restart') {
     if (state.phase === 'lobby') return false
     // 联机只有房主可以重新开始
@@ -292,7 +380,7 @@ function validate(a: Action, local: boolean): boolean {
       (state.allowUndo && state.lastMove?.color === a.color && undoDepth.value > state.undoFloor)
     )
   }
-  if (a.kind === 'board-size' || a.kind === 'boundary-setting') {
+  if (a.kind === 'board-size' || a.kind === 'boundary-setting' || a.kind === 'clock-setting') {
     // 仅布置阶段可调；联机只有房主可调，单机任意
     if (state.phase !== 'setup') return false
     return state.mode === 'local' || a.color === state.players[0]
@@ -312,7 +400,7 @@ function validate(a: Action, local: boolean): boolean {
     !wouldEncloseDiag(a.x, a.y, a.ori, a.color)
 }
 
-function apply(a: Action) {
+function apply(a: Action, at = Date.now()) {
   if (a.kind === 'restart') {
     resetBoard()
     return
@@ -331,6 +419,28 @@ function apply(a: Action) {
     state.boundaryReflects = a.enabled
     return
   }
+  if (a.kind === 'clock-setting') {
+    state.clockSettings = normalizeClockSettings(a.settings)
+    state.clock = freshClock(state.clockSettings, state.clock.revision + 1)
+    return
+  }
+  if (a.kind === 'timeout') {
+    holdClock(at)
+    state.clock.remaining[a.color] = 0
+    state.dead.push(a.color)
+    state.timedOut.push(a.color)
+    clearHistory()
+    const alive = state.players.filter(c => !state.dead.includes(c))
+    if (alive.length === 1) {
+      state.phase = 'over'
+      state.winner = alive[0]
+    } else {
+      state.current = nextAlive(a.color)
+      settleTurn()
+    }
+    startTurnClock(at)
+    return
+  }
   if (a.kind === 'undo') {
     // 各端都弹出各自栈顶（无刷新时各端栈完全一致）；
     // 恢复以动作携带的帧为准，刷新后栈深度不一致也不会分叉
@@ -346,6 +456,11 @@ function apply(a: Action) {
     state.winner = f.winner
     state.phase = f.phase
     state.lastMove = f.lastMove
+    state.timedOut = [...(f.timedOut ?? [])]
+    if (f.clock) {
+      state.clock = { ...f.clock, remaining: { ...f.clock.remaining }, revision: state.clock.revision + 1 }
+      startTurnClock(at)
+    }
     return
   }
   if (a.kind === 'board-size') {
@@ -363,11 +478,14 @@ function apply(a: Action) {
       state.phase = 'play'
       state.current = state.players[0]
       settleTurn()
+      startTurnClock(at)
     }
     return
   }
-  // 放镜：先入历史栈（撤回用），再落子并记为上一步
+  // 合法落子先扣实际用时；撤回恢复落子前的剩余时间，不重复赠送加秒。
+  holdClock(at)
   pushFrame()
+  if (state.clockSettings.enabled) state.clock.remaining[a.color] += state.clockSettings.incrementMs
   if (a.kind === 'edge') {
     state.edges.set(a.id, { color: a.color })
     state.lastMove = { kind: 'edge', id: a.id, color: a.color }
@@ -378,6 +496,7 @@ function apply(a: Action) {
   if (state.phase === 'play') {
     state.current = nextAlive(a.color)
     settleTurn()
+    startTurnClock(at)
   }
 }
 
@@ -391,9 +510,10 @@ export function setSender(fn: ((a: Action) => void) | null, deferLocal = false) 
 
 /** 本地操作入口：校验 → 应用 →（联机时）广播 */
 export function dispatch(a: Action) {
+  if ((a.kind === 'edge' || a.kind === 'diag' || a.kind === 'undo') && tickClock()) return
   if (!validate(a, true)) return
   // 中继客人的动作由房主确认后通过 applyRemote 应用，避免刷新/重连时局面分叉。
-  if (state.mode === 'online' && waitForHost) {
+  if (state.mode === 'online' && (waitForHost || (state.clockSettings.enabled && !isClockAuthority()))) {
     sender?.(a)
     return
   }
@@ -402,9 +522,11 @@ export function dispatch(a: Action) {
 }
 
 /** 远端操作入口 */
-export function applyRemote(a: Action) {
+export function applyRemote(a: Action, clock?: ClockSync) {
+  if (isClockAuthority() && (a.kind === 'edge' || a.kind === 'diag' || a.kind === 'undo') && tickClock()) return false
   if (!validate(a, false)) return false
-  apply(a)
+  apply(a, clock?.at ?? Date.now())
+  if (clock) applyClockSync(clock, true)
   return true
 }
 
@@ -445,6 +567,9 @@ export interface Snapshot {
   allowUndo?: boolean
   /** 老存档缺省为关闭，保留该局原来的边界规则 */
   boundaryReflects?: boolean
+  clockSettings?: ClockSettings
+  clock?: ClockSync
+  timedOut?: Color[]
   /** 上一步放置的镜子；缺省视为无 */
   lastMove?: LastMove
   /** 对局会话 id（/s/<id>）；无此字段的存档视为旧格式，加载时直接忽略 */
@@ -469,6 +594,9 @@ export function serialize(): Snapshot {
     laserAllowed: state.laserAllowed,
     allowUndo: state.allowUndo,
     boundaryReflects: state.boundaryReflects,
+    clockSettings: { ...state.clockSettings },
+    clock: serializeClock(),
+    timedOut: [...state.timedOut],
     lastMove: state.lastMove,
     sessionId: state.sessionId,
     size: state.size,
@@ -503,6 +631,12 @@ export function applySnapshot(s: Snapshot, preserveIdentity = false) {
   state.laserAllowed = s.laserAllowed
   state.allowUndo = s.allowUndo ?? false
   state.boundaryReflects = s.boundaryReflects ?? false
+  state.clockSettings = s.clockSettings ? normalizeClockSettings(s.clockSettings) : { ...defaultClockSettings(), enabled: false }
+  state.timedOut = [...(s.timedOut ?? [])]
+  if (s.clock) applyClockSync(s.clock, true)
+  else state.clock = freshClock(state.clockSettings)
+  // 联机恢复先暂停在最近保存的剩余时间，待房主确认所有人重连后再启动。
+  if (!preserveIdentity && s.mode === 'online') state.clock.runningSince = null
   state.lastMove = s.lastMove ?? null
   clearHistory() // 历史栈不随快照走，恢复后从空栈重新累计
   state.size = s.size
@@ -537,20 +671,18 @@ export function loadSave(): Snapshot | null {
   return null
 }
 
+export function persistGame() {
+  if (state.phase === 'lobby') return
+  for (const store of storages()) {
+    try { store.setItem(SAVE_KEY, JSON.stringify(serialize())) } catch { /* 忽略存储不可用 */ }
+  }
+}
+
 // 任何状态变化后自动落盘（sessionStorage + localStorage 双写）。
 // 回到大厅时【不写也不删】——存档要保留，浏览器「前进」才能凭 /s/<id> 恢复对局；
 // 大厅快照本身也会被 loadSave 过滤，写进去只会冲掉真正的对局存档。
 watch(
   state,
-  () => {
-    if (state.phase === 'lobby') return
-    for (const store of storages()) {
-      try {
-        store.setItem(SAVE_KEY, JSON.stringify(serialize()))
-      } catch {
-        // 隐私模式等写不进去时静默忽略
-      }
-    }
-  },
+  persistGame,
   { deep: true },
 )

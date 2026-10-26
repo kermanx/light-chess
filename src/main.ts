@@ -2,7 +2,7 @@ import { createApp } from 'vue'
 import './style.css'
 import App from './App.vue'
 import { netClose, netRejoin } from './net'
-import { applySnapshot, loadSave, state, toLobby, type Snapshot } from './store'
+import { applySnapshot, broadcastClock, loadSave, persistGame, state, tickClock, toLobby, type Snapshot } from './store'
 
 createApp(App).mount('#app')
 
@@ -23,6 +23,22 @@ function restore(save: Snapshot) {
 const save = loadSave()
 const sid = sessionMatch()
 if (save && sid && save.sessionId === sid) restore(save)
+
+// 用绝对时间计算剩余量，后台定时器被节流也不会漏扣时间。
+let lastClockSync = 0
+setInterval(() => {
+  tickClock()
+  if (state.phase === 'play' && state.clockSettings.enabled && Date.now() - lastClockSync >= 1000) {
+    lastClockSync = Date.now()
+    broadcastClock()
+    persistGame()
+  }
+}, 100)
+addEventListener('visibilitychange', () => { if (!document.hidden) tickClock() })
+addEventListener('pagehide', () => {
+  if (state.mode === 'online') state.peerLeft = true
+  persistGame()
+})
 
 // 浏览器后退/前进：回大厅（存档保留）↔ 恢复对局
 addEventListener('popstate', () => {

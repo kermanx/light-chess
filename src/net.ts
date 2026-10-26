@@ -5,11 +5,15 @@
 import { reactive } from 'vue'
 import { defaultRelayUrls as nostrRelayUrls, getRelaySockets as getRelaySocketsNostr, joinRoom as joinRoomNostr, type MessageAction, type Room } from 'trystero'
 import { seatColors, type Color } from './game'
+import { defaultClockSettings, type ClockSettings, type ClockSync } from './clock'
 import { joinRelayRoom, type RelayRoom } from './relay'
 import {
   applyRemote,
+  applyClockSync,
   applySnapshot,
   serialize,
+  serializeClock,
+  setClockSender,
   setSender,
   startOnline,
   state,
@@ -74,8 +78,9 @@ type Msg =
   | { t: 'hello'; token: string; want: Color | null }
   | { t: 'welcome'; color: Color; players: number; joined: number; started: boolean }
   | { t: 'room-info'; joined: number }
-  | { t: 'start'; players: number; settings?: { size: number; laserAllowed: boolean; allowUndo: boolean; boundaryReflects?: boolean } }
-  | { t: 'act'; act: Action; origin?: string }
+  | { t: 'start'; players: number; settings?: { size: number; laserAllowed: boolean; allowUndo: boolean; boundaryReflects?: boolean; clockSettings?: ClockSettings } }
+  | { t: 'act'; act: Action; origin?: string; clock?: ClockSync }
+  | { t: 'clock'; clock: ClockSync }
   | { t: 'sync'; snap: Snapshot }
   | { t: 'err'; msg: string }
 
@@ -202,8 +207,8 @@ const send = (msg: Msg, target?: string) => {
 const sendAct = (act: Action) => {
   // 中继模式由房主转发动作：开局只需所有人连上房主，不必等待客人两两发现。
   // origin 保留给旧版中继客户端去重；新版客人等房主确认才应用动作。
-  if (relayRoom) {
-    if (isHost) send({ t: 'act', act, origin: token })
+  if (relayRoom || state.clockSettings.enabled) {
+    if (isHost) send({ t: 'act', act, origin: token, clock: serializeClock() })
     else if (hostPeerId) send({ t: 'act', act, origin: token }, hostPeerId)
   } else send({ t: 'act', act })
 }
@@ -267,6 +272,7 @@ function hostOnHello(msg: Extract<Msg, { t: 'hello' }>, peerId: string) {
     const settings = {
       size: state.size, laserAllowed: state.laserAllowed, allowUndo: state.allowUndo,
       boundaryReflects: state.boundaryReflects,
+      clockSettings: { ...state.clockSettings },
     }
     if (relayRoom) {
       send({
@@ -355,16 +361,25 @@ function handle(msg: Msg, peerId: string) {
           state.allowUndo = msg.settings.allowUndo
         }
         state.boundaryReflects = msg.settings?.boundaryReflects ?? false
+        state.clockSettings = msg.settings?.clockSettings ?? { ...defaultClockSettings(), enabled: false }
         startOnline(state.myColor!, state.roomCode, state.players)
       }
       break
     case 'act':
-      if (relayRoom) {
+      if (relayRoom || state.clockSettings.enabled) {
         if (!isHost && peerId !== hostPeerId) return
-        if (applyRemote(msg.act) && isHost) send(msg)
+        if (isHost) {
+          const seatToken = [...peerByToken].find(([, id]) => id === peerId)?.[0]
+          if (!seatToken || seats.get(seatToken) !== msg.act.color || msg.act.kind === 'timeout') return
+          if (applyRemote(msg.act)) send({ ...msg, clock: serializeClock() })
+        } else applyRemote(msg.act, msg.clock)
       } else applyRemote(msg.act)
       break
+    case 'clock':
+      if (!isHost && peerId === hostPeerId) applyClockSync(msg.clock)
+      break
     case 'sync':
+      if (isHost || peerId !== hostPeerId) return
       // 房主的权威状态；保留本机身份，只覆盖对局数据
       applySnapshot(msg.snap, true)
       state.peerLeft = relayRoom ? state.roomJoined < state.players.length : false
@@ -378,6 +393,7 @@ function handle(msg: Msg, peerId: string) {
 }
 
 async function openRoom(code: string) {
+  setClockSender(() => { if (isHost) send({ t: 'clock', clock: serializeClock() }) })
   const sig = signalingOf(code)
   if (sig === 'relay') {
     relayRoom = await joinRelayRoom(APP_ID, `room-${code}`)
@@ -529,6 +545,7 @@ export function netClose() {
   signaling.total = 0
   pending = null
   setSender(null)
+  setClockSender(null)
   if (room) void room.leave()
   room = null
   if (relayRoom) void relayRoom.leave()

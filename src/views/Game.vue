@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import ClockSettings from '../components/ClockSettings.vue'
+import ChessClock from '../components/ChessClock.vue'
+import type { ClockSettings as ClockConfig } from '../clock'
 import {
   edgeMid,
   edgeOf,
@@ -386,6 +389,10 @@ function toggleBoundary(e: Event) {
   })
 }
 
+function changeClock(settings: ClockConfig) {
+  dispatch({ kind: 'clock-setting', color: state.mode === 'online' ? hostColor.value : setupColor.value, settings })
+}
+
 // 棋盘尺寸变化会重置对局，清掉本地待选状态
 watch(
   () => state.size,
@@ -719,6 +726,7 @@ const statusText = computed(() => {
       <div class="overlay" v-if="state.phase === 'over'">
         <div class="overlay-card paper" :class="state.winner!">
           <div class="overlay-title">{{ name(state.winner!) }}获胜</div>
+          <p v-if="state.timedOut.length">{{ state.timedOut.map(name).join('、') }}用时耗尽</p>
           <div class="overlay-btns">
             <button v-if="isHostSide" class="btn-primary" @click="restart">再来一局</button>
             <span v-else class="wait-host">等待房主再来一局…</span>
@@ -731,6 +739,7 @@ const statusText = computed(() => {
       <h1 class="logo-sm">光镜棋</h1>
 
       <div :key="nudge" class="note status-note" :class="[statusColor ?? '', { nudged: nudge > 0 }]">{{ statusText }}</div>
+      <ChessClock />
 
       <div class="note meta-note">
         <label
@@ -757,11 +766,12 @@ const statusText = computed(() => {
           class="room"
           :style="{ color: COLORS[c] }"
         >
-          ✕ {{ name(c) }}已出局
+          ✕ {{ name(c) }}{{ state.timedOut.includes(c) ? '超时出局' : '已出局' }}
         </span>
       </div>
 
       <div class="ctl-note note">
+      <ClockSettings :settings="state.clockSettings" :disabled="state.phase !== 'setup' || !isHostSide" @change="changeClock" />
       <label class="chk">
         <input type="checkbox" :checked="state.boundaryReflects"
           :disabled="state.phase !== 'setup' || !isHostSide" @change="toggleBoundary" />
@@ -797,6 +807,7 @@ const statusText = computed(() => {
         <p><b>边界</b>：开启「边界反射」时，边界对所有光线全反射；关闭时出界光线终止。开局后不可更改。</p>
         <p><b>限制</b>：每种颜色的边镜、斜镜分别连同边框，不能把仍在场的基地彼此隔开；所有基地仍在同一区域时允许。</p>
         <p><b>结算</b>：轮到谁就在其回合开头结算其激光；被打中出局（✕）。双人打中即胜，多人活到最后获胜。</p>
+        <p><b>棋钟</b>：只扣当前行动者的时间，合法放镜后加秒；超时出局，多人局继续。掉线等待重连时暂停。</p>
       </div>
     </div>
     </aside>

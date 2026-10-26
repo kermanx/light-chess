@@ -28,6 +28,11 @@ let gameKey
 const brokers = []
 const browser = await chromium.launch()
 
+async function waitForGame(page, predicate) {
+  await page.evaluate(async () => { window.gameStore = await import('/src/store.ts') })
+  await page.waitForFunction(predicate)
+}
+
 function decode(payload, secret = key) {
   const [iv, encoded] = payload.toString().split('.')
   const data = Buffer.from(encoded, 'base64')
@@ -167,14 +172,14 @@ try {
     return { ...settings, awaitingHost: !state.homes.red }
   })
   assert.deepEqual(initial, { size: 24, undo: true, boundary: false, awaitingHost: true }, '开局设置完整，落子等待房主确认')
-  await host.waitForFunction(async () => Boolean((await import('/src/store.ts')).state.homes.red))
+  await waitForGame(host, () => Boolean(window.gameStore.state.homes.red))
   await new Promise(resolve => setTimeout(resolve, 2500))
   assert.deepEqual(await guest.evaluate(async () => (await import('/src/store.ts')).state.homes.red), { x: 6, y: 6, dir: 1 })
   console.log('ok: 开局原子同步设置，迟到的设置不会清空客人的布置')
 
   assert(await guest.getByLabel('边界反射', { exact: false }).isDisabled(), '客人不能修改边界规则')
   await host.getByLabel('边界反射', { exact: false }).check()
-  await guest.waitForFunction(async () => (await import('/src/store.ts')).state.boundaryReflects)
+  await waitForGame(guest, () => window.gameStore.state.boundaryReflects)
   assert(await guest.getByLabel('边界反射', { exact: false }).isChecked())
   console.log('ok: 建房设置带入客人，布置阶段房主更改边界规则会同步到客人')
 
@@ -183,14 +188,14 @@ try {
     dispatch({ kind: 'setup', color: 'blue', home: { x: 3, y: 3, dir: 0 } })
     dispatch({ kind: 'edge', color: 'blue', id: 'h:15:15' })
   })
-  await guest.waitForFunction(async () => (await import('/src/store.ts')).state.current === 'red')
+  await waitForGame(guest, () => window.gameStore.state.current === 'red')
   await guest.evaluate(async () => {
     const { dispatch } = await import('/src/store.ts')
     dispatch({ kind: 'edge', color: 'red', id: 'v:4:3' })
   })
   for (const page of [host, guest]) {
-    await page.waitForFunction(async () => {
-      const { state } = await import('/src/store.ts')
+    await waitForGame(page, () => {
+      const { state } = window.gameStore
       return state.edges.get('v:4:3')?.color === 'red' && state.current === 'blue'
     })
   }
@@ -199,12 +204,36 @@ try {
     assert(await page.getByLabel('边界反射', { exact: false }).isDisabled(), '开局后两端边界规则都锁定')
   }
   await guest.reload()
-  await guest.waitForFunction(async () => {
-    const { state } = await import('/src/store.ts')
+  await waitForGame(guest, () => {
+    const { state } = window.gameStore
     return state.phase === 'play' && !state.peerLeft && state.boundaryReflects && state.edges.has('v:4:3')
   })
   assert(await guest.getByLabel('边界反射', { exact: false }).isChecked())
   console.log('ok: 开局后边界规则锁定，客人刷新重连后仍保持一致')
+
+  for (const page of [host, guest]) {
+    const clock = await page.evaluate(async () => {
+      const { state, remainingTime } = await import('/src/store.ts')
+      return { settings: { ...state.clockSettings }, blue: remainingTime('blue', Date.now()), red: remainingTime('red', Date.now()) }
+    })
+    assert.deepEqual(clock.settings, { enabled: true, initialMs: 120000, incrementMs: 10000 })
+    assert(clock.blue > 120000 && clock.blue <= 130000, '蓝方落子后加 10 秒并继续倒计时')
+    assert(clock.red > 120000 && clock.red <= 130000, `红方落子后加 10 秒并在对方回合停表: ${JSON.stringify(clock)}`)
+    assert.equal(await page.locator('.clock-row').count(), 2)
+    assert(await page.getByLabel('每人用时（分钟）').isDisabled(), '开局后棋钟设置锁定')
+  }
+  await host.evaluate(async () => {
+    const { state, tickClock } = await import('/src/store.ts')
+    tickClock(state.clock.runningSince + state.clock.remaining[state.current] + 1)
+  })
+  for (const page of [host, guest]) {
+    await waitForGame(page, () => {
+      const { state } = window.gameStore
+      return state.phase === 'over' && state.winner === 'red' && state.timedOut.includes('blue') && state.clock.remaining.blue === 0
+    })
+    assert.equal(await page.locator('.clock-row[data-color="blue"] .clock-value').innerText(), '00:00')
+  }
+  console.log('ok: 默认 2 分钟加 10 秒、两端落子加秒、重连恢复、设置锁定及房主超时判负同步')
 } finally {
   await browser.close()
   for (const { server, broker } of brokers) {

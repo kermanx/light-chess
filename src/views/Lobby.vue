@@ -4,6 +4,7 @@ import { MAX_PLAYERS, MIN_PLAYERS } from '../game'
 import { announceRoom, watchRooms, type PublicRoom } from '../directory'
 import { isValidCode, netClose, netCreate, netJoin, signaling, type Signaling } from '../net'
 import { SIZE_MAX, SIZE_MIN, startLocal, state } from '../store'
+import ClockSettings from '../components/ClockSettings.vue'
 
 const view = ref<'menu' | 'created' | 'join'>('menu')
 const code = ref('')
@@ -211,6 +212,7 @@ onMounted(() => {
         <input type="checkbox" v-model="pub" />
         公开房间（创建后其他玩家可在加入页直接看到并加入）
       </label>
+      <ClockSettings :settings="state.clockSettings" @change="state.clockSettings = $event" />
     </div>
 
     <div v-else-if="view === 'created'" class="panel">
@@ -227,6 +229,7 @@ onMounted(() => {
       </div>
 
       <div class="settings">
+        <ClockSettings :settings="state.clockSettings" @change="state.clockSettings = $event" />
         <label class="laser-opt">
           <input type="checkbox" v-model="state.boundaryReflects" />
           边界反射（所有光线碰到边界都会反射）
