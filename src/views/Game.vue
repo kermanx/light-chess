@@ -21,6 +21,7 @@ import {
   isHomeCell,
   isValidExit,
   isValidHomeCell,
+  isValidHomeSetup,
   setupColor,
   SIZE_MAX,
   SIZE_MIN,
@@ -197,21 +198,32 @@ function exitClick(ev: MouseEvent) {
   if (!canAct.value) return
   const h = pendingHome.value
   const dir = dirFromEvent(ev)
-  // 最外圈格子的出口不能朝向棋盘外（家会无法被命中），该方向不可选
-  if (!h || dir === null || !isValidExit(h.x, h.y, dir)) return
+  if (!h || dir === null || !isValidHomeSetup({ ...h, dir }, setupColor.value)) return
   dispatch({ kind: 'setup', color: setupColor.value, home: { x: h.x, y: h.y, dir } })
   pendingHome.value = null
   hoverExitDir.value = null
 }
 
-/** 待选家的合法出口方向（最外圈格子排除朝向棋盘外的方向） */
+const safeHomeDirs = (x: number, y: number) =>
+  DIRS.filter(dir => isValidHomeSetup({ x, y, dir }, setupColor.value))
+
+/** 每个开口方向单独试放三面家镜，保留不会产生开局命中的方向。 */
 const exitDirs = computed<Dir[]>(() => {
   const h = pendingHome.value
-  return h ? DIRS.filter((d) => isValidExit(h.x, h.y, d)) : []
+  return h ? safeHomeDirs(h.x, h.y) : []
 })
 
 /** 待选家在最外圈（存在被禁用的出口方向）时给出提示 */
-const edgeExitHint = computed(() => pendingHome.value !== null && exitDirs.value.length < DIRS.length)
+const edgeExitHint = computed(() => {
+  const h = pendingHome.value
+  return h !== null && DIRS.some(d => !isValidExit(h.x, h.y, d))
+})
+
+const unsafeExit = computed(() => {
+  const h = pendingHome.value
+  const dir = hoverExitDir.value
+  return h !== null && dir !== null && isValidExit(h.x, h.y, dir) && !exitDirs.value.includes(dir)
+})
 
 /** 悬停方向的大箭头（从家中心连一条杆到出口边） */
 function exitArrow(dir: Dir) {
@@ -228,7 +240,7 @@ function exitArrow(dir: Dir) {
   }
 }
 const exitPreview = computed(() =>
-  hoverExitDir.value !== null && pendingHome.value && exitDirs.value.includes(hoverExitDir.value)
+  hoverExitDir.value !== null && pendingHome.value && (exitDirs.value.includes(hoverExitDir.value) || unsafeExit.value)
     ? exitArrow(hoverExitDir.value)
     : null,
 )
@@ -241,10 +253,10 @@ function cellClick(x: number, y: number, backslash: boolean) {
   }
   if (state.phase === 'setup') {
     if (!pendingHome.value) {
-      if (isValidHomeCell(x, y, setupColor.value)) pendingHome.value = { x, y }
+      if (safeHomeDirs(x, y).length) pendingHome.value = { x, y }
     } else if (pendingHome.value.x === x && pendingHome.value.y === y) {
       pendingHome.value = null
-    } else if (isValidHomeCell(x, y, setupColor.value)) {
+    } else if (safeHomeDirs(x, y).length) {
       // 已有待选家时点击别的合法格子：直接改选
       pendingHome.value = { x, y }
       hoverExitDir.value = null
@@ -264,7 +276,7 @@ function edgeClick(id: string) {
     const h = pendingHome.value
     if (!h) return
     const dir = DIRS.find((d) => edgeOf(h.x, h.y, d) === id)
-    if (dir === undefined || !isValidExit(h.x, h.y, dir)) return
+    if (dir === undefined || !isValidHomeSetup({ ...h, dir }, setupColor.value)) return
     dispatch({ kind: 'setup', color: setupColor.value, home: { x: h.x, y: h.y, dir } })
     pendingHome.value = null
     return
@@ -443,6 +455,10 @@ const ghostHome = computed(() => {
     return null
   return c
 })
+const ghostHomeBad = computed(() => {
+  const h = ghostHome.value
+  return h !== null && safeHomeDirs(h.x, h.y).length === 0
+})
 
 const statusColor = computed<Color | null>(() => {
   if (state.phase === 'over') return state.winner
@@ -455,6 +471,8 @@ const statusText = computed(() => {
   if (ghostEdgeBad.value || ghostCellBad.value) return '此处放镜会把某对玩家的家隔开，不能放'
   if (state.phase === 'over') return `${name(state.winner!)}获胜！`
   if (state.phase === 'setup') {
+    if (ghostHomeBad.value) return '这个位置的所有开口都会造成开局命中，请换一个位置'
+    if (unsafeExit.value) return '这个开口会造成开局命中，不能放；请换个方向或位置'
     if (state.mode === 'online') {
       if (!state.homes[state.myColor!])
         return pendingHome.value
@@ -552,7 +570,7 @@ const statusText = computed(() => {
           <template v-else>
             <line
               v-bind="exitPreview.shaft"
-              :stroke="COLORS[setupColor]"
+              :stroke="unsafeExit ? '#b91c1c' : COLORS[setupColor]"
               stroke-width="3"
               stroke-opacity="0.75"
               stroke-linecap="round"
@@ -560,7 +578,8 @@ const statusText = computed(() => {
             />
             <polygon
               :points="exitPreview.points"
-              :fill="COLORS[setupColor]"
+              :fill="unsafeExit ? '#b91c1c' : COLORS[setupColor]"
+              :data-unsafe-exit="unsafeExit ? '1' : null"
               class="no-events"
             />
           </template>
@@ -678,7 +697,8 @@ const statusText = computed(() => {
           :cx="u(ghostHome.x + 0.5)"
           :cy="u(ghostHome.y + 0.5)"
           :r="S * 0.2"
-          :fill="COLORS[setupColor]"
+          :fill="ghostHomeBad ? '#b91c1c' : COLORS[setupColor]"
+          :data-unsafe-home="ghostHomeBad ? '1' : null"
           fill-opacity="0.3"
           class="no-events"
         />
@@ -806,6 +826,7 @@ const statusText = computed(() => {
         <p><b>反射</b>：自己的镜子对自己半反射（穿过+反射），别人的镜子只反射。</p>
         <p><b>边界</b>：开启「边界反射」时，边界对所有光线全反射；关闭时出界光线终止。开局后不可更改。</p>
         <p><b>限制</b>：每种颜色的边镜、斜镜分别连同边框，不能把仍在场的基地彼此隔开；所有基地仍在同一区域时允许。</p>
+        <p><b>布置</b>：基地的位置和开口方向不能让任何一方在开局时被光线命中；红色方向不可选，可以换方向或换位置。</p>
         <p><b>结算</b>：轮到谁就在其回合开头结算其激光；被打中出局（✕）。双人打中即胜，多人活到最后获胜。</p>
         <p><b>棋钟</b>：只扣当前行动者的时间，合法放镜后加秒；超时出局，多人局继续。掉线等待重连时暂停。</p>
       </div>

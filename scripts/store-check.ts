@@ -249,12 +249,14 @@ dispatch({ kind: 'undo', color: 'blue', frame: topUndoFrame()! })
 assert(!state.edges.has('h:12:12') && state.current === 'blue', '撤回自己开启后下的那手')
 assert(undoDepth.value === 2 && state.undoFloor === 1, '撤回到底线之上为止')
 
-// 场景 I：从家镜一侧发出的光也参与回合开头的胜负结算。
+// 场景 I：禁止从家镜一侧发出的光造成开局秒杀，同格换成安全方向仍可布置。
 startLocal(2)
 dispatch({ kind: 'setup', color: 'blue', home: { x: 4, y: 4, dir: 0 } })
 dispatch({ kind: 'setup', color: 'red', home: { x: 4, y: 8, dir: 3 } })
-assert(state.phase === 'over' && state.winner === 'blue' && state.dead.includes('red'),
-  '蓝光从下方家镜穿出并命中红家，开局回合结算蓝胜')
+assert(state.phase === 'setup' && !state.homes.red && !state.winner && state.dead.length === 0,
+  '蓝光从下方家镜穿出会命中红家，拒绝红方这个开口')
+dispatch({ kind: 'setup', color: 'red', home: { x: 4, y: 8, dir: 0 } })
+assert(state.phase === 'play' && state.homes.red?.dir === 0, '同一个格子改为朝右开口可以安全开局')
 
 // 场景 J：边镜与斜镜共同封口，斜镜落子、远端动作和预览都必须拒绝。
 startLocal(2)

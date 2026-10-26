@@ -132,6 +132,22 @@ export const isValidExit = (x: number, y: number, dir: Dir) => {
   return nx >= 0 && ny >= 0 && nx < state.size && ny < state.size
 }
 
+/** 按位置和开口方向试放完整基地，初始光路不能命中任何一方。 */
+export function isValidHomeSetup(home: Home, color: Color): boolean {
+  if (!isValidHomeCell(home.x, home.y, color) || !isValidExit(home.x, home.y, home.dir)) return false
+  const trial: BoardState = {
+    homes: { ...state.homes, [color]: home },
+    edges: new Map(state.edges),
+    diags: state.diags,
+    size: state.size,
+    boundaryReflects: state.boundaryReflects,
+  }
+  for (const d of [0, 1, 2, 3] as Dir[]) {
+    if (d !== home.dir) trial.edges.set(edgeOf(home.x, home.y, d), { color })
+  }
+  return state.players.every(c => !simulate(trial, c).hit)
+}
+
 /** 存活玩家的家（出局者的家不再参与围死判定） */
 const aliveHomes = () => {
   const homes: Partial<Record<Color, Home>> = {}
@@ -388,7 +404,7 @@ function validate(a: Action, local: boolean): boolean {
   if (a.kind === 'setup') {
     if (state.phase !== 'setup' || state.homes[a.color]) return false
     if (!state.players.includes(a.color)) return false
-    return isValidHomeCell(a.home.x, a.home.y, a.color) && isValidExit(a.home.x, a.home.y, a.home.dir)
+    return isValidHomeSetup(a.home, a.color)
   }
   if (state.phase !== 'play' || a.color !== state.current) return false
   if (state.dead.includes(a.color)) return false // 出局者不能操作
