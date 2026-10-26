@@ -1,10 +1,10 @@
 // 同机双标签页联机校验：同一个 browser context 开两个 page（共享 localStorage、sessionStorage 各自独立），
 // 复现并回归「标签页 B 读到标签页 A 的身份 token 导致永远开不了局」的 bug。
-// 需先启动 dev 服务（localhost:5173）和本地中继（localhost:8787）。
+// 需先启动 dev 服务（localhost:5173）和本地中继（localhost:8788）。
 import { chromium } from 'playwright'
 
 const BASE = process.env.BASE_URL || 'http://localhost:5173'
-const RELAY = process.env.RELAY_URL || 'ws://localhost:8787'
+const RELAY = process.env.RELAY_URL || 'ws://localhost:8788'
 
 async function waitFor(fn, what, timeout = 30000) {
   const t0 = Date.now()
@@ -23,7 +23,7 @@ async function waitFor(fn, what, timeout = 30000) {
 
 const browser = await chromium.launch()
 const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } })
-await ctx.addInitScript((r) => localStorage.setItem('light-chess:relays', r), RELAY)
+await ctx.addInitScript((r) => localStorage.setItem('light-chess:mqtt-relays', r), RELAY)
 
 // 标签页 A：创建 2 人房
 const A = await ctx.newPage()

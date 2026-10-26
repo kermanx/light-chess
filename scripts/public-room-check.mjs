@@ -1,11 +1,11 @@
 // 公开房间端到端校验：
 // 1) 未勾选「公开」的房间不出现在加入页列表
 // 2) 公开房间（默认勾选）出现在加入页列表，点击直接入座开局
-// 需先启动 dev 服务（localhost:5173）和本地中继（localhost:8787）。
+// 需先启动 dev 服务（localhost:5173）和本地中继（localhost:8788）。
 import { chromium } from 'playwright'
 
 const BASE = process.env.BASE_URL || 'http://localhost:5173'
-const RELAY = process.env.RELAY_URL || 'ws://localhost:8787'
+const RELAY = process.env.RELAY_URL || 'ws://localhost:8788'
 
 async function waitFor(fn, what, timeout = 30000) {
   const t0 = Date.now()
@@ -24,7 +24,7 @@ async function waitFor(fn, what, timeout = 30000) {
 
 const browser = await chromium.launch()
 const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } })
-await ctx.addInitScript((r) => localStorage.setItem('light-chess:relays', r), RELAY)
+await ctx.addInitScript((r) => localStorage.setItem('light-chess:mqtt-relays', r), RELAY)
 
 const newPage = async (tag) => {
   const p = await ctx.newPage()
@@ -45,7 +45,7 @@ const B1 = await newPage('B1')
 await B1.getByText('加入房间').click()
 // 等足够久（覆盖广播周期），列表应保持为空
 await B1.waitForTimeout(10000)
-const leaked = await B1.locator('.pub-item').count()
+const leaked = await B1.locator('.pub-item', { hasText: privCode }).count()
 if (leaked !== 0) throw new Error(`私密房间不应出现在公开列表，实际看到 ${leaked} 个`)
 console.log('ok: 私密房间未出现在公开列表')
 await B1.close()

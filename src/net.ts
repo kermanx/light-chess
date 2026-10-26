@@ -1,10 +1,11 @@
-// 联机层：基于 trystero（WebRTC P2P，公共中继做信令），无需任何服务器。
+// 联机层：默认直接中继棋局消息，保留 trystero P2P 兼容旧房间。
 // 模型：房主权威——建房者是房主，负责分配座位、判定开局、持有权威对局状态；
-// 其余消息（放置动作）在 P2P 网关中直接广播，与原来的哑转发语义一致。
-// 信令双通道：Nostr 或 MQTT，由房间号首位区分（1=Nostr，2=MQTT）。
+// 其余消息（放置动作）在房间内广播。
+// 房号首位：1=Nostr P2P，2=MQTT P2P，3=WebSocket 中继（默认，不依赖 UDP）。
 import { reactive } from 'vue'
 import { defaultRelayUrls as nostrRelayUrls, getRelaySockets as getRelaySocketsNostr, joinRoom as joinRoomNostr, type MessageAction, type Room } from 'trystero'
 import { seatColors, type Color } from './game'
+import { joinRelayRoom, type RelayRoom } from './relay'
 import {
   applyRemote,
   applySnapshot,
@@ -23,17 +24,17 @@ const HELLO_INTERVAL = 2000
 const JOIN_TIMEOUT = 30000
 
 /** 信令通道 */
-export type Signaling = 'nostr' | 'mqtt'
+export type Signaling = 'relay' | 'nostr' | 'mqtt'
 
-/** 房间号约定：4 位数字，首位 1=Nostr、2=MQTT，后三位随机 */
-export const signalingOf = (code: string): Signaling => (code.startsWith('2') ? 'mqtt' : 'nostr')
+/** 保留旧房号的 P2P 协议，新房间默认走中继。 */
+export const signalingOf = (code: string): Signaling => code.startsWith('3') ? 'relay' : code.startsWith('2') ? 'mqtt' : 'nostr'
 
-export const isValidCode = (code: string) => /^[12]\d{3}$/.test(code)
+export const isValidCode = (code: string) => /^[123]\d{3}$/.test(code)
 
 /**
- * 信令中继：Nostr 用 8 个精选高可用中继优先 + trystero 内置完整默认列表（约 50 个）；
+ * 旧 P2P 房间的信令中继：Nostr 优先列表 + trystero 内置默认列表；
  * MQTT 用其内置 broker 列表（含 broker-cn.emqx.io）。连接全部并行尝试，
- * 任一可达即可完成握手，为各种受限网络（大陆直连/代理规则/TUN）做最坏打算。
+ * WebSocket 可达不代表允许收发信令，也不代表 WebRTC 直连可用。
  * 仍可用 localStorage 的 light-chess:relays（逗号分隔 ws(s) 地址）整体覆盖，
  * 用于本地开发测试或公共中继不可达的网络环境。
  */
@@ -45,7 +46,6 @@ export const PREFERRED_NOSTR_RELAYS = [
   'wss://purplerelay.com',
   'wss://nostr.data.haus',
   'wss://relay.snort.social',
-  'wss://nostr.wine',
 ]
 
 const relayUrls = async (sig: Signaling): Promise<string[]> => {
@@ -65,7 +65,7 @@ const relayUrls = async (sig: Signaling): Promise<string[]> => {
 }
 
 const genCode = (sig: Signaling) =>
-  (sig === 'mqtt' ? '2' : '1') +
+  (sig === 'relay' ? '3' : sig === 'mqtt' ? '2' : '1') +
   Array.from({ length: 3 }, () => Math.floor(Math.random() * 10)).join('')
 const genToken = () =>
   Array.from(crypto.getRandomValues(new Uint8Array(9)), (b) => b.toString(36)).join('').slice(0, 12)
@@ -75,7 +75,7 @@ type Msg =
   | { t: 'welcome'; color: Color; players: number; joined: number; started: boolean }
   | { t: 'room-info'; joined: number }
   | { t: 'start'; players: number }
-  | { t: 'act'; act: Action }
+  | { t: 'act'; act: Action; origin?: string }
   | { t: 'sync'; snap: Snapshot }
   | { t: 'err'; msg: string }
 
@@ -135,6 +135,7 @@ function saveNet(rec: NetRecord) {
 }
 
 let room: Room | null = null
+let relayRoom: RelayRoom | null = null
 // trystero 的 DataPayload 要求索引签名，这里消息体由我们自己的协议保证，用 any 兜底
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let action: MessageAction<any> | null = null
@@ -148,11 +149,13 @@ let seats = new Map<string, Color>()
 let connected = new Set<string>()
 let peerByToken = new Map<string, string>()
 let welcomed = false
+let hostPeerId: string | null = null
 let helloTimer: ReturnType<typeof setInterval> | null = null
+let joinTimer: ReturnType<typeof setTimeout> | null = null
 let relayTimer: ReturnType<typeof setInterval> | null = null
 let pending: { resolve: () => void; reject: (e: Error) => void } | null = null
 
-/** 信令中继连接状态（UI 诊断展示用）：up=曾连上过的中继数（峰值），total=尝试总数 */
+/** 中继模式 up=消息往返成功的在线 broker 数；旧 P2P 模式仅统计 socket。 */
 export const signaling = reactive({ up: 0, total: 0 })
 
 /** 轮询当前信令通道的中继 socket 状态（nostr / mqtt 各自统计） */
@@ -163,6 +166,12 @@ function trackRelays(code: string) {
   const sig = signalingOf(code)
   const poll = async () => {
     try {
+      if (sig === 'relay') {
+        const status = relayRoom?.status()
+        signaling.up = status?.up ?? 0
+        signaling.total = status?.total ?? 0
+        return
+      }
       // getRelaySockets 返回 { [url]: WebSocket }，取 values 统计。
       // 某些网络下 socket 会快速闪断（OPEN 窗口很短），故用峰值 latch：
       // 只要曾连上过就说明中继可达，对用户更有诊断意义
@@ -185,11 +194,19 @@ function trackRelays(code: string) {
 const inGame = () => state.mode === 'online' && state.phase !== 'lobby'
 
 const send = (msg: Msg, target?: string) => {
+  if (relayRoom) return relayRoom.send(msg, target)
   if (!action) return
   void (target ? action.send(msg, { target }) : action.send(msg))
 }
 
-const sendAct = (act: Action) => send({ t: 'act', act })
+const sendAct = (act: Action) => {
+  // 中继模式由房主转发动作：开局只需所有人连上房主，不必等待客人两两发现。
+  // origin 避免发送者再次执行本地已经应用的动作（尤其是撤回）。
+  if (relayRoom) {
+    if (isHost) send({ t: 'act', act, origin: token })
+    else if (hostPeerId) send({ t: 'act', act, origin: token }, hostPeerId)
+  } else send({ t: 'act', act })
+}
 
 function persistSeats() {
   const rec = loadNet()
@@ -199,6 +216,8 @@ function persistSeats() {
 function clearHello() {
   if (helloTimer) clearInterval(helloTimer)
   helloTimer = null
+  if (joinTimer) clearTimeout(joinTimer)
+  joinTimer = null
 }
 
 function sendHello() {
@@ -261,25 +280,32 @@ function hostOnHello(msg: Extract<Msg, { t: 'hello' }>, peerId: string) {
 }
 
 function hostOnPeerLeave(peerId: string) {
+  let found = false
   for (const [tok, pid] of peerByToken) {
     if (pid === peerId) {
+      found = true
       peerByToken.delete(tok)
       connected.delete(tok)
       break
     }
   }
+  // 刷新后同一 token 已绑定新 peer；旧连接迟到的离线事件不能再次锁住棋盘。
+  if (!found) return
   if (state.phase === 'lobby') {
     state.roomJoined = connected.size
     send({ t: 'room-info', joined: connected.size })
   } else {
     state.peerLeft = true
+    if (relayRoom) send({ t: 'room-info', joined: connected.size })
   }
 }
 
 // ---------- 加入者侧 ----------
 
-function onWelcome(msg: Extract<Msg, { t: 'welcome' }>) {
-  if (isHost || welcomed) return
+function onWelcome(msg: Extract<Msg, { t: 'welcome' }>, peerId: string) {
+  if (isHost) return
+  hostPeerId = peerId
+  if (welcomed) return
   welcomed = true
   clearHello()
   state.myColor = msg.color
@@ -299,10 +325,11 @@ function handle(msg: Msg, peerId: string) {
       hostOnHello(msg, peerId)
       break
     case 'welcome':
-      onWelcome(msg)
+      onWelcome(msg, peerId)
       break
     case 'room-info':
       state.roomJoined = msg.joined
+      if (relayRoom && !isHost && inGame()) state.peerLeft = msg.joined < state.players.length
       break
     case 'start':
       if (!isHost && !inGame()) {
@@ -312,12 +339,16 @@ function handle(msg: Msg, peerId: string) {
       }
       break
     case 'act':
-      applyRemote(msg.act)
+      if (relayRoom) {
+        if (!isHost && peerId !== hostPeerId) return
+        if (msg.origin !== token) applyRemote(msg.act)
+        if (isHost) send(msg)
+      } else applyRemote(msg.act)
       break
     case 'sync':
       // 房主的权威状态；保留本机身份，只覆盖对局数据
       applySnapshot(msg.snap, true)
-      state.peerLeft = false
+      state.peerLeft = relayRoom ? state.roomJoined < state.players.length : false
       break
     case 'err':
       clearHello()
@@ -329,16 +360,28 @@ function handle(msg: Msg, peerId: string) {
 
 async function openRoom(code: string) {
   const sig = signalingOf(code)
+  if (sig === 'relay') {
+    relayRoom = await joinRelayRoom(APP_ID, `room-${code}`)
+    relayRoom.onMessage = (msg, peerId) => {
+      try { handle(msg as Msg, peerId) } catch { /* 忽略异常消息 */ }
+    }
+    relayRoom.onPeerJoin = () => {
+      if (!isHost) sendHello()
+    }
+    relayRoom.onPeerLeave = (peerId) => {
+      if (isHost) hostOnPeerLeave(peerId)
+      else if (inGame() && peerId === hostPeerId) state.peerLeft = true
+    }
+    trackRelays(code)
+    setSender(sendAct)
+    return
+  }
   const urls = await relayUrls(sig)
   const join = sig === 'mqtt' ? (await import('@trystero-p2p/mqtt')).joinRoom : joinRoomNostr
   room = join(
     {
       appId: APP_ID,
       relayConfig: { urls },
-      // 把 mDNS(.local) 候选地址改写为 127.0.0.1（trystero 官方开关）。
-      // 在 TUN/代理（fake-ip）网络里，.local 会解析到虚拟网卡地址导致 ICE 永远失败；
-      // 改写后同机多标签页可直接 loopback 互连，跨机场景本来就不靠 host 候选（走 STUN srflx）。
-      _test_only_mdnsHostFallbackToLoopback: true,
     },
     `room-${code}`,
   )
@@ -369,16 +412,21 @@ function waitWelcome(): Promise<void> {
     clearHello()
     helloTimer = setInterval(sendHello, HELLO_INTERVAL)
     sendHello()
-    setTimeout(() => {
+    joinTimer = setTimeout(() => {
       if (pending) {
         pending = null
         // 注意先取中继数再 netClose——netClose 会把 signaling.up 清零，
         // 之前顺序写反导致报错永远显示「连不上任何信令中继」
         const up = signaling.up
+        const directRelay = signalingOf(state.roomCode) === 'relay'
         netClose()
         reject(
           new Error(
-            up === 0
+            directRelay
+              ? up === 0
+                ? '连接失败：当前网络无法收发中继消息，请检查代理或更换网络后重试'
+                : '中继可用，但房主没有回应：请确认房主仍停留在房间页面，并使用最新的房间链接'
+              : up === 0
               ? '连接失败：当前网络连不上任何信令中继。请更换网络，或让房主换用另一种信令（Nostr / MQTT）'
               : `已连上 ${up} 个信令中继，但联系不上房主：房间不存在、房主不在线，或 P2P 连接被当前网络拦截`,
           ),
@@ -389,7 +437,7 @@ function waitWelcome(): Promise<void> {
 }
 
 /** 创建房间，返回房间号（本方坐 0 号位）；signaling 决定信令通道并编入房号首位 */
-export async function netCreate(playerCount: number, signaling: Signaling = 'nostr'): Promise<string> {
+export async function netCreate(playerCount: number, signaling: Signaling = 'relay'): Promise<string> {
   netClose()
   isHost = true
   started = false
@@ -412,10 +460,11 @@ export async function netCreate(playerCount: number, signaling: Signaling = 'nos
 export async function netJoin(code: string): Promise<void> {
   netClose()
   const normalized = code.trim()
-  if (!isValidCode(normalized)) throw new Error('房间号无效（1 或 2 开头的 4 位数字）')
+  if (!isValidCode(normalized)) throw new Error('房间号无效（1、2 或 3 开头的 4 位数字）')
   isHost = false
   started = false
   welcomed = false
+  hostPeerId = null
   wantColor = null
   // 只有在「以客人身份重进同一个房间」（刷新重连）时才复用旧 token；
   // 否则必须换新——否则同机另一标签页是房主时，会因 token 相同被当成房主重连
@@ -462,10 +511,13 @@ export function netClose() {
   setSender(null)
   if (room) void room.leave()
   room = null
+  if (relayRoom) void relayRoom.leave()
+  relayRoom = null
   action = null
   isHost = false
   started = false
   welcomed = false
+  hostPeerId = null
   seats = new Map()
   connected = new Set()
   peerByToken = new Map()

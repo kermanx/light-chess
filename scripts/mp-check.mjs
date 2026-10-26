@@ -1,5 +1,5 @@
-// 三人联机端到端校验（trystero P2P）：建 3 人房 → 三人入座 → 各自布置 → 回合轮转 → 三色渲染 → 淘汰制 UI
-// 需先启动 dev 服务（默认打 http://localhost:5173，可用 BASE_URL 覆盖）；P2P 信令走公网中继，断言均轮询等待
+// 三人联机端到端校验（WebSocket 中继）：建 3 人房 → 三人入座 → 各自布置 → 回合轮转 → 三色渲染 → 淘汰制 UI
+// 需先启动 dev 服务（默认打 http://localhost:5173，可用 BASE_URL 覆盖）；WebSocket 消息走公网中继，断言均轮询等待
 import { chromium } from 'playwright'
 import net from 'node:net'
 
@@ -8,7 +8,7 @@ const SIZE = 72 + 36 * 28
 const PAD = 36
 const S = 28
 
-// 本机若有 127.0.0.1:7897 代理（或 E2E_PROXY 指定），P2P 信令走代理；CI 直连
+// 本机若有 127.0.0.1:7897 代理（或 E2E_PROXY 指定），WebSocket 消息走代理；CI 直连
 const proxyServer = process.env.E2E_PROXY || (await new Promise((r) => {
   const s = net.connect(7897, '127.0.0.1')
   s.setTimeout(1500)
@@ -68,10 +68,13 @@ const da = makeDriver(A)
 const db = makeDriver(B)
 const dc = makeDriver(C)
 
-// 指向本地开发中继（默认公共 Nostr 中继在本机不可达；RELAY_URL 可覆盖）
-const RELAY = process.env.RELAY_URL || 'ws://localhost:8787'
+// 指向本地开发中继（RELAY_URL 可覆盖为公共 MQTT WebSocket 地址）
+const RELAY = process.env.RELAY_URL || 'ws://localhost:8788'
 for (const p of [A, B, C]) {
-  await p.addInitScript((r) => localStorage.setItem('light-chess:relays', r), RELAY)
+  await p.addInitScript((r) => {
+    localStorage.setItem('light-chess:mqtt-relays', r)
+    window.RTCPeerConnection = class { constructor() { throw new Error('联机回归已禁用 WebRTC') } }
+  }, RELAY)
 }
 
 // A：选 3 人，创建房间

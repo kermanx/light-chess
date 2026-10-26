@@ -2,7 +2,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { MAX_PLAYERS, MIN_PLAYERS } from '../game'
 import { announceRoom, watchRooms, type PublicRoom } from '../directory'
-import { netClose, netCreate, netJoin, signaling, type Signaling } from '../net'
+import { isValidCode, netClose, netCreate, netJoin, signaling, type Signaling } from '../net'
 import { SIZE_MAX, SIZE_MIN, startLocal, state } from '../store'
 
 const view = ref<'menu' | 'created' | 'join'>('menu')
@@ -13,8 +13,8 @@ const busy = ref(false)
 const copied = ref(false)
 /** 玩家人数（单机与创建房间共用） */
 const count = ref(MIN_PLAYERS)
-/** 联机信令通道（建房时使用；房号首位 1=Nostr 2=MQTT） */
-const sig = ref<Signaling>('nostr')
+/** 联机方式（3=中继，1/2=旧 P2P 协议） */
+const sig = ref<Signaling>('relay')
 /** 公开房间：创建后广播到大厅，其他玩家在加入页可直接看到并点击进入 */
 const pub = ref(true)
 /** 加入页实时看到的公开房间列表 */
@@ -164,7 +164,7 @@ onMounted(() => {
   const param = new URLSearchParams(location.search).get('join')
   if (!param) return
   const c = param.trim()
-  if (!/^[12]\d{3}$/.test(c)) return
+  if (!isValidCode(c)) return
   joinCode.value = c
   view.value = 'join'
   void join()
@@ -248,12 +248,13 @@ onMounted(() => {
           × {{ state.size }} 格
         </label>
         <label class="laser-opt">
-          信令
+          连接方式
           <select class="sig-select" :value="sig" :disabled="busy" @change="onSigChange">
-            <option value="nostr">Nostr</option>
-            <option value="mqtt">MQTT</option>
+            <option value="relay">中继连接（推荐）</option>
+            <option value="nostr">Nostr 直连</option>
+            <option value="mqtt">MQTT 直连</option>
           </select>
-          <span class="sig-hint">朋友连不上时换另一种，房间号会更新</span>
+          <span class="sig-hint">使用代理时请选择中继连接；切换后需重新分享链接</span>
         </label>
       </div>
 
@@ -262,9 +263,9 @@ onMounted(() => {
         等待玩家加入 {{ state.roomJoined }}/{{ count }}<span class="dots"><i>.</i><i>.</i><i>.</i></span>
       </p>
       <p class="relay-status" :class="{ warn: signaling.total > 0 && signaling.up === 0 }">
-        <template v-if="signaling.up > 0">信令中继已连接 {{ signaling.up }} 个</template>
-        <template v-else-if="signaling.total > 0">信令中继连接中（{{ signaling.up }}/{{ signaling.total }}）…若一直为 0，说明当前网络连不上中继，请换信令或网络</template>
-        <template v-else>信令中继连接中…</template>
+        <template v-if="signaling.up > 0">中继已连接 {{ signaling.up }} 个</template>
+        <template v-else-if="signaling.total > 0">正在连接中继（{{ signaling.up }}/{{ signaling.total }}）…若一直为 0，请检查代理或更换网络</template>
+        <template v-else>中继连接中…</template>
       </p>
 
       <button class="btn-plain cancel-btn" @click="cancel">取消</button>
@@ -272,14 +273,14 @@ onMounted(() => {
 
     <div v-else class="panel">
       <p class="panel-label">
-        {{ busy ? `正在加入房间 ${joinCode}…` : '输入 4 位房间号（首位区分信令通道）' }}
+        {{ busy ? `正在加入房间 ${joinCode}…` : '输入 4 位房间号' }}
       </p>
       <input
         v-model="joinCode"
         class="code-input"
         maxlength="4"
         inputmode="numeric"
-        placeholder="如 1839"
+        placeholder="如 3839"
         @keyup.enter="join"
       />
       <div class="row">
@@ -303,8 +304,8 @@ onMounted(() => {
         <p v-if="!openRooms.length" class="pub-empty">正在寻找公开房间…</p>
       </div>
       <p v-if="busy" class="relay-status" :class="{ warn: signaling.total > 0 && signaling.up === 0 }">
-        <template v-if="signaling.up > 0">信令中继已连接 {{ signaling.up }} 个，正在联系房主…</template>
-        <template v-else>信令中继连接中（{{ signaling.up }}/{{ signaling.total }}）…</template>
+        <template v-if="signaling.up > 0">中继已连接 {{ signaling.up }} 个，正在联系房主…</template>
+        <template v-else>中继连接中（{{ signaling.up }}/{{ signaling.total }}）…</template>
       </p>
     </div>
 

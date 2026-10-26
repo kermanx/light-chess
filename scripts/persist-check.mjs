@@ -1,5 +1,5 @@
 // 持久化端到端校验：localStorage 存档 + 刷新恢复（单机 & 联机 rejoin）
-// 联机走 trystero P2P（公网中继信令），断言均轮询等待；需先启动 dev 服务
+// 联机走 WebSocket 中继（公网中继信令），断言均轮询等待；需先启动 dev 服务
 import { chromium } from 'playwright'
 import net from 'node:net'
 
@@ -8,7 +8,7 @@ const SIZE = 72 + 36 * 28
 const PAD = 36
 const S = 28
 
-// 本机若有 127.0.0.1:7897 代理（或 E2E_PROXY 指定），P2P 信令走代理；CI 直连
+// 本机若有 127.0.0.1:7897 代理（或 E2E_PROXY 指定），WebSocket 消息走代理；CI 直连
 const proxyServer = process.env.E2E_PROXY || (await new Promise((r) => {
   const s = net.connect(7897, '127.0.0.1')
   s.setTimeout(1500)
@@ -89,10 +89,10 @@ function makeDriver(page) {
   const da = makeDriver(A)
   const db = makeDriver(B)
 
-  // 指向本地开发中继（默认公共 Nostr 中继在本机不可达；RELAY_URL 可覆盖）
-  const RELAY = process.env.RELAY_URL || 'ws://localhost:8787'
+  // 指向本地开发中继（RELAY_URL 可覆盖为公共 MQTT WebSocket 地址）
+  const RELAY = process.env.RELAY_URL || 'ws://localhost:8788'
   for (const p of [A, B]) {
-    await p.addInitScript((r) => localStorage.setItem('light-chess:relays', r), RELAY)
+    await p.addInitScript((r) => localStorage.setItem('light-chess:mqtt-relays', r), RELAY)
   }
 
   await A.goto(BASE + '/', { waitUntil: 'networkidle' })

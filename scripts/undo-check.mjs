@@ -1,9 +1,9 @@
 // 撤回一步 / 等待方预览与提醒动画 / 上一步加粗 / 非房主无重新开始 / 对局 URL 的端到端校验
-// 需先启动 dev 服务（localhost:5173）和本地中继（localhost:8787）。
+// 需先启动 dev 服务（localhost:5173）和本地中继（localhost:8788）。
 import { chromium } from 'playwright'
 
 const BASE = process.env.BASE_URL || 'http://localhost:5173'
-const RELAY = process.env.RELAY_URL || 'ws://localhost:8787'
+const RELAY = process.env.RELAY_URL || 'ws://localhost:8788'
 const PAD = 36
 const S = 28
 const SIZE = 72 + 36 * 28
@@ -25,7 +25,7 @@ async function waitFor(fn, what, timeout = 30000) {
 
 const browser = await chromium.launch()
 const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } })
-await ctx.addInitScript((r) => localStorage.setItem('light-chess:relays', r), RELAY)
+await ctx.addInitScript((r) => localStorage.setItem('light-chess:mqtt-relays', r), RELAY)
 
 const mk = async (tag) => {
   const p = await ctx.newPage()
