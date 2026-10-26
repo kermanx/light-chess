@@ -132,7 +132,7 @@ export const isValidExit = (x: number, y: number, dir: Dir) => {
   return nx >= 0 && ny >= 0 && nx < state.size && ny < state.size
 }
 
-/** 按位置和开口方向试放完整基地，初始光路不能命中任何一方。 */
+/** 试放完整基地，只禁止开局第一回合实际结算时立即淘汰玩家的布置。 */
 export function isValidHomeSetup(home: Home, color: Color): boolean {
   if (!isValidHomeCell(home.x, home.y, color) || !isValidExit(home.x, home.y, home.dir)) return false
   const trial: BoardState = {
@@ -145,7 +145,8 @@ export function isValidHomeSetup(home: Home, color: Color): boolean {
   for (const d of [0, 1, 2, 3] as Dir[]) {
     if (d !== home.dir) trial.edges.set(edgeOf(home.x, home.y, d), { color })
   }
-  return state.players.every(c => !simulate(trial, c).hit)
+  // 开局只结算先手；其他玩家的光路威胁留待其回合处理，先手仍有机会放镜自救。
+  return !simulate(trial, state.players[0]).hit
 }
 
 /** 存活玩家的家（出局者的家不再参与围死判定） */

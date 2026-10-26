@@ -210,7 +210,7 @@ function exitClick(ev: MouseEvent) {
 const safeHomeDirs = (x: number, y: number) =>
   DIRS.filter(dir => isValidHomeSetup({ x, y, dir }, setupColor.value))
 
-/** 每个开口方向单独试放三面家镜，保留不会产生开局命中的方向。 */
+/** 每个开口方向单独试放三面家镜，排除先手开局立即命中的方向。 */
 const exitDirs = computed<Dir[]>(() => {
   const h = pendingHome.value
   return h ? safeHomeDirs(h.x, h.y) : []
@@ -474,8 +474,8 @@ const statusText = computed(() => {
   if (ghostEdgeBad.value || ghostCellBad.value) return '此处放镜会把某对玩家的家隔开，不能放'
   if (state.phase === 'over') return `${name(state.winner!)}获胜！`
   if (state.phase === 'setup') {
-    if (ghostHomeBad.value) return '这个位置的所有开口都会造成开局命中，请换一个位置'
-    if (unsafeExit.value) return '这个开口会造成开局命中，不能放；请换个方向或位置'
+    if (ghostHomeBad.value) return '这个位置会让先手在开局立即命中基地，请换一个位置'
+    if (unsafeExit.value) return '这个开口会让先手在开局立即命中基地，请换个方向或位置'
     if (state.mode === 'online') {
       if (!state.homes[state.myColor!])
         return pendingHome.value
@@ -821,7 +821,7 @@ const statusText = computed(() => {
         <p><b>反射</b>：自己的镜子对自己半反射（穿过+反射），别人的镜子只反射。</p>
         <p><b>边界</b>：开启「边界反射」时，边界对所有光线全反射；关闭时出界光线终止。开局后不可更改。</p>
         <p><b>限制</b>：每种颜色的边镜、斜镜分别连同边框，不能把仍在场的基地彼此隔开；所有基地仍在同一区域时允许。</p>
-        <p><b>布置</b>：基地的位置和开口方向不能让任何一方在开局时被光线命中；红色方向不可选，可以换方向或换位置。</p>
+        <p><b>布置</b>：允许基地同排或同列，只禁止先手在开局立即命中基地的布置；后续回合的光路威胁仍可通过放镜化解。</p>
         <p><b>结算</b>：轮到谁就在其回合开头结算其激光；被打中出局（✕）。双人打中即胜，多人活到最后获胜。</p>
         <p><b>棋钟</b>：只扣当前行动者的时间，合法放镜后加秒；超时出局，多人局继续。掉线等待重连时暂停。</p>
       </div>
