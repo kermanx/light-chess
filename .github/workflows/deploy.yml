@@ -24,7 +24,14 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
-      - run: npx playwright install --with-deps chromium
+      - name: Install browser dependencies
+        run: |
+          # The Azure mirror can stall font downloads on hosted runners.
+          for mirror_list in /etc/apt/apt-mirrors*.txt; do
+            [ -f "$mirror_list" ] || continue
+            sudo sed -i 's|http://azure.archive.ubuntu.com/ubuntu|http://archive.ubuntu.com/ubuntu|g' "$mirror_list"
+          done
+          npx playwright install --with-deps chromium
       - name: Check multiplayer without WebRTC
         run: node scripts/relay-check.mjs
       - name: Check enclosure rule interactions
