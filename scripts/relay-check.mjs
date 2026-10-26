@@ -23,13 +23,15 @@ const decoded = new Map()
 let dropped = 0
 let reordered = 0
 let dropUntil = 0
+let gameTopic = ''
+let gameKey
 const brokers = []
 const browser = await chromium.launch()
 
-function decode(payload) {
+function decode(payload, secret = key) {
   const [iv, encoded] = payload.toString().split('.')
   const data = Buffer.from(encoded, 'base64')
-  const decipher = createDecipheriv('aes-256-gcm', key, Buffer.from(iv, 'base64'))
+  const decipher = createDecipheriv('aes-256-gcm', secret, Buffer.from(iv, 'base64'))
   decipher.setAuthTag(data.subarray(-16))
   return JSON.parse(Buffer.concat([decipher.update(data.subarray(0, -16)), decipher.final()]))
 }
@@ -41,6 +43,14 @@ try {
     server.on('connection', socket => broker.handle(createWebSocketStream(socket)))
     await once(server, 'listening')
     broker.authorizePublish = (_client, packet, callback) => {
+      if (packet.topic === gameTopic) {
+        const body = decode(packet.payload, gameKey)
+        // 旧协议在 start 之后另发 board-size；延迟它会重置玩家刚布置的家。
+        if (body.kind === 'data' && body.data?.t === 'act' && body.data.act.kind === 'board-size') {
+          return setTimeout(() => callback(null), 2000)
+        }
+        return callback(null)
+      }
       if (packet.topic !== topic) return callback(null)
       let body
       try { body = decode(packet.payload) } catch { return callback(null) }
@@ -120,6 +130,41 @@ try {
   assert.deepEqual(await B.evaluate(() => window.received), Array.from({ length: 25 }, (_, i) => i + 1))
   assert.deepEqual(errors, [])
   console.log('ok: 掉线超时后恢复，保留消息序号并补发未确认消息')
+
+  const gamePages = []
+  for (let i = 0; i < 2; i++) {
+    const context = await browser.newContext()
+    await context.addInitScript(url => {
+      localStorage.setItem('light-chess:mqtt-relays', url)
+      window.RTCPeerConnection = class { constructor() { throw new Error('WebRTC must not be used') } }
+    }, brokers[1].url)
+    const page = await context.newPage()
+    await page.goto(BASE)
+    gamePages.push(page)
+  }
+  const [host, guest] = gamePages
+  await host.locator('.pub-opt input').uncheck()
+  await host.getByText('创建房间', { exact: true }).click()
+  const code = await host.locator('.room-code').innerText()
+  const namespace = `light-chess-kermanx/room-${code}`
+  gameTopic = 'light-chess/v1/' + createHash('sha256').update(`topic/${namespace}`).digest('hex')
+  gameKey = createHash('sha256').update(`key/${namespace}`).digest()
+  await host.locator('.size-input').fill('24')
+  await host.locator('.size-input').dispatchEvent('change')
+  await host.getByLabel('允许撤回一步', { exact: false }).check()
+  await guest.goto(`${BASE}/?join=${code}`)
+  await guest.waitForSelector('svg.board-svg')
+  const initial = await guest.evaluate(async () => {
+    const { state, dispatch } = await import('/src/store.ts')
+    const settings = { size: state.size, undo: state.allowUndo }
+    dispatch({ kind: 'setup', color: state.myColor, home: { x: 6, y: 6, dir: 1 } })
+    return settings
+  })
+  assert.deepEqual(initial, { size: 24, undo: true }, '棋盘开放操作时必须已经应用房主设置')
+  await host.waitForFunction(async () => Boolean((await import('/src/store.ts')).state.homes.red))
+  await new Promise(resolve => setTimeout(resolve, 2500))
+  assert.deepEqual(await guest.evaluate(async () => (await import('/src/store.ts')).state.homes.red), { x: 6, y: 6, dir: 1 })
+  console.log('ok: 开局原子同步设置，迟到的设置不会清空客人的布置')
 } finally {
   await browser.close()
   for (const { server, broker } of brokers) {

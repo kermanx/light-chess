@@ -74,7 +74,7 @@ type Msg =
   | { t: 'hello'; token: string; want: Color | null }
   | { t: 'welcome'; color: Color; players: number; joined: number; started: boolean }
   | { t: 'room-info'; joined: number }
-  | { t: 'start'; players: number }
+  | { t: 'start'; players: number; settings?: { size: number; laserAllowed: boolean; allowUndo: boolean } }
   | { t: 'act'; act: Action; origin?: string }
   | { t: 'sync'; snap: Snapshot }
   | { t: 'err'; msg: string }
@@ -260,13 +260,23 @@ function hostOnHello(msg: Extract<Msg, { t: 'hello' }>, peerId: string) {
   send({ t: 'room-info', joined: connected.size })
 
   if (!started && connected.size === state.players.length && seats.size === state.players.length) {
-    // 全员到齐：开局（房主先本地进入，再广播，最后同步房间设置）
+    // 全员到齐：中继模式把设置与开局合成一条消息，在客人能操作之前应用。
+    // 另发 board-size 会在慢网络下清空客人刚放好的家。
     started = true
     startOnline(state.myColor!, state.roomCode, state.players)
-    send({ t: 'start', players: state.players.length })
-    sendAct({ kind: 'laser-setting', color: state.players[0], allow: state.laserAllowed })
-    sendAct({ kind: 'undo-setting', color: state.players[0], allow: state.allowUndo, floor: 0 })
-    sendAct({ kind: 'board-size', color: state.players[0], size: state.size })
+    if (relayRoom) {
+      send({
+        t: 'start',
+        players: state.players.length,
+        settings: { size: state.size, laserAllowed: state.laserAllowed, allowUndo: state.allowUndo },
+      })
+    } else {
+      // 兼容仍在使用旧版客户端的 P2P 房间。
+      send({ t: 'start', players: state.players.length })
+      sendAct({ kind: 'laser-setting', color: state.players[0], allow: state.laserAllowed })
+      sendAct({ kind: 'undo-setting', color: state.players[0], allow: state.allowUndo, floor: 0 })
+      sendAct({ kind: 'board-size', color: state.players[0], size: state.size })
+    }
     return
   }
   if (started) {
@@ -335,6 +345,11 @@ function handle(msg: Msg, peerId: string) {
       if (!isHost && !inGame()) {
         state.peerLeft = false
         state.players = seatColors(msg.players)
+        if (msg.settings) {
+          state.size = msg.settings.size
+          state.laserAllowed = msg.settings.laserAllowed
+          state.allowUndo = msg.settings.allowUndo
+        }
         startOnline(state.myColor!, state.roomCode, state.players)
       }
       break
