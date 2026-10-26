@@ -29,7 +29,7 @@ export interface Pt {
 export interface Home {
   x: number
   y: number
-  /** 家的开口方向（唯一没放镜子的那条边；家向四个方向发光） */
+  /** 家的初始开口方向（布置时不放家镜的边；家向四个方向发光） */
   dir: Dir
 }
 

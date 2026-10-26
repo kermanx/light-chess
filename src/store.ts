@@ -102,9 +102,6 @@ const nextAlive = (c: Color): Color => {
 export const isHomeCell = (x: number, y: number) =>
   Object.values(state.homes).some((h) => h.x === x && h.y === y)
 
-export const isPortEdge = (id: string) =>
-  Object.values(state.homes).some((h) => edgeOf(h.x, h.y, h.dir) === id)
-
 /** 选家合法性：不能落在任何一个家上，也不能与任何家相邻（含对角） */
 export const isValidHomeCell = (x: number, y: number, _color: Color) => {
   if (isHomeCell(x, y)) return false
@@ -301,7 +298,7 @@ function validate(a: Action, local: boolean): boolean {
   if (state.phase !== 'play' || a.color !== state.current) return false
   if (state.dead.includes(a.color)) return false // 出局者不能操作
   if (a.kind === 'edge') {
-    if (isPortEdge(a.id) || state.edges.has(a.id)) return false
+    if (state.edges.has(a.id)) return false
     return !wouldEnclose(a.id, a.color)
   }
   return !isHomeCell(a.x, a.y) && !state.diags.has(`${a.x},${a.y}`) &&

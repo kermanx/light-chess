@@ -170,6 +170,24 @@ try {
   await new Promise(resolve => setTimeout(resolve, 2500))
   assert.deepEqual(await guest.evaluate(async () => (await import('/src/store.ts')).state.homes.red), { x: 6, y: 6, dir: 1 })
   console.log('ok: 开局原子同步设置，迟到的设置不会清空客人的布置')
+
+  await host.evaluate(async () => {
+    const { dispatch } = await import('/src/store.ts')
+    dispatch({ kind: 'setup', color: 'blue', home: { x: 3, y: 3, dir: 0 } })
+    dispatch({ kind: 'edge', color: 'blue', id: 'h:15:15' })
+  })
+  await guest.waitForFunction(async () => (await import('/src/store.ts')).state.current === 'red')
+  await guest.evaluate(async () => {
+    const { dispatch } = await import('/src/store.ts')
+    dispatch({ kind: 'edge', color: 'red', id: 'v:4:3' })
+  })
+  for (const page of [host, guest]) {
+    await page.waitForFunction(async () => {
+      const { state } = await import('/src/store.ts')
+      return state.edges.get('v:4:3')?.color === 'red' && state.current === 'blue'
+    })
+  }
+  console.log('ok: 客人在房主基地开口放镜，房主确认后两端棋局与回合一致')
 } finally {
   await browser.close()
   for (const { server, broker } of brokers) {

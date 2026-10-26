@@ -22,9 +22,9 @@ dispatch({ kind: 'edge', color: 'blue', id: 'v:12:12' }) // 出口格右边 → 
 assert(!state.edges.has('v:12:12'), '第三面口袋镜（围死）被 dispatch 拒绝')
 assert(state.current === 'blue', '非法放置不消耗回合')
 
-// 港口边不可放
+// 自己封住自己的开口会与三面家镜组成同色围墙，因此仍然非法。
 dispatch({ kind: 'edge', color: 'blue', id: 'v:11:12' })
-assert(!state.edges.has('v:11:12'), '家的出口边不可放镜')
+assert(!state.edges.has('v:11:12'), '同色镜封住自己家的开口会隔开基地，拒绝')
 
 // 场景 B：贴边界口袋——蓝家 (4,1) 出口朝上，出口格左右封边即被边框+镜子隔开
 startLocal()
@@ -283,5 +283,28 @@ dispatch({ kind: 'edge', color: 'red', id: 'h:25:25' })
 assert(wouldEnclose('h:11:12', 'blue'), '边镜预览包含已存在的斜镜')
 dispatch({ kind: 'edge', color: 'blue', id: 'h:11:12' })
 assert(!state.edges.has('h:11:12') && state.current === 'blue', '与斜镜共同封口的边镜被拒绝')
+
+// 场景 L：基地开口是普通空边，对方可以放镜，但仍检查占用和禁围。
+startLocal(2)
+dispatch({ kind: 'setup', color: 'blue', home: { x: 10, y: 12, dir: 0 } })
+dispatch({ kind: 'setup', color: 'red', home: { x: 20, y: 16, dir: 2 } })
+dispatch({ kind: 'edge', color: 'blue', id: 'h:25:25' })
+assert(!wouldEnclose('v:11:12', 'red'), '红镜单独放在蓝家开口不会形成同色围墙')
+dispatch({ kind: 'edge', color: 'red', id: 'v:11:12' })
+assert(state.edges.get('v:11:12')?.color === 'red' && state.current === 'blue',
+  '对方可以在基地开口放镜，并正常轮转回合')
+dispatch({ kind: 'edge', color: 'blue', id: 'v:11:12' })
+assert(state.edges.get('v:11:12')?.color === 'red' && state.current === 'blue', '开口已有镜子时不能覆盖')
+
+startLocal(2)
+dispatch({ kind: 'setup', color: 'blue', home: { x: 10, y: 12, dir: 0 } })
+dispatch({ kind: 'setup', color: 'red', home: { x: 20, y: 16, dir: 2 } })
+dispatch({ kind: 'edge', color: 'blue', id: 'h:25:25' })
+for (const id of ['v:11:11', 'h:10:11', 'h:9:11', 'v:9:11', 'v:9:12', 'v:9:13', 'h:9:14', 'h:10:14', 'v:11:13']) {
+  state.edges.set(id, { color: 'red' })
+}
+assert(wouldEnclose('v:11:12', 'red'), '对方在开口的落子补齐同色围墙时仍然非法')
+assert(!applyRemote({ kind: 'edge', color: 'red', id: 'v:11:12' }) &&
+  !state.edges.has('v:11:12') && state.current === 'red', '远端开口落子违反禁围规则也会被拒绝')
 
 console.log('全部通过')

@@ -16,7 +16,6 @@ import {
   dispatch,
   hostColor,
   isHomeCell,
-  isPortEdge,
   isValidExit,
   isValidHomeCell,
   setupColor,
@@ -394,7 +393,7 @@ const linePath = (pts: Pt[]) => pts.map((p) => `${u(p.x)},${u(p.y)}`).join(' ')
 const ghostEdge = computed(() => {
   const id = hoverEdge.value
   // 对方回合也显示预览（仅不可点击），方便筹划下一手
-  if (state.phase !== 'play' || !id || state.edges.has(id) || isPortEdge(id)) return null
+  if (state.phase !== 'play' || !id || state.edges.has(id)) return null
   return id
 })
 
@@ -780,7 +779,7 @@ const statusText = computed(() => {
       <div class="help-body">
         <p><b>目标</b>：让自家的激光经镜面反射，打到别人的家。</p>
         <p><b>开局</b>：各选一个格子当家并指定开口，其余 3 条边自动放上你的镜子。家向四个方向发光，光线也能穿过自己的家镜。</p>
-        <p><b>放镜</b>：轮流每回合放一面，不可移除。点网格边放边镜；左键格子放「/」、右键放「\」斜镜，Shift 反向。</p>
+        <p><b>放镜</b>：轮流每回合放一面，不可移除。点网格边放边镜；左键格子放「/」、右键放「\」斜镜，Shift 反向。对方基地的开口也可放镜，仍须遵守禁围规则。</p>
         <p><b>反射</b>：自己的镜子对自己半反射（穿过+反射），别人的镜子只反射。</p>
         <p><b>限制</b>：每种颜色的边镜、斜镜分别连同边框，不能把仍在场的基地彼此隔开；所有基地仍在同一区域时允许。</p>
         <p><b>结算</b>：轮到谁就在其回合开头结算其激光；被打中出局（✕）。双人打中即胜，多人活到最后获胜。</p>
