@@ -83,8 +83,9 @@ for (const p of [A, B, C]) {
 
 // A：选 3 人，创建房间
 await A.goto(BASE + '/', { waitUntil: 'networkidle' })
-await A.locator('.count-btn', { hasText: '3' }).click()
 await A.getByText('创建房间').click()
+await A.locator('.count-btn', { hasText: '3' }).click()
+await A.getByRole('button', { name: '创建并等待' }).click()
 await A.waitForSelector('.room-code')
 const code = (await A.locator('.room-code').innerText()).trim()
 console.log('房间号', code)

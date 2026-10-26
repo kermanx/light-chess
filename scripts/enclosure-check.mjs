@@ -14,11 +14,21 @@ try {
   const errors = []
   page.on('pageerror', error => errors.push(error.message))
   await page.goto(`http://127.0.0.1:${vite.httpServer.address().port}/`)
+  assert.equal(await page.locator('.card').count(), 3, '首页只保留三个游戏入口')
+  assert.equal(await page.locator('input, select, .count-ctl').count(), 0, '首页不显示设置')
+  if (process.env.LOBBY_SCREENSHOT_DIR) {
+    await page.screenshot({ path: `${process.env.LOBBY_SCREENSHOT_DIR}/lobby-desktop.png` })
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.screenshot({ path: `${process.env.LOBBY_SCREENSHOT_DIR}/lobby-mobile.png` })
+    await page.setViewportSize({ width: 1280, height: 900 })
+  }
+  await page.getByText('单机对战').click()
+  assert.equal(await page.locator('.pub-opt').count(), 0, '单机准备页不显示公开房间选项')
   const boundary = page.getByLabel('边界反射', { exact: false })
   assert(await boundary.isChecked(), '新局默认开启边界反射')
   await boundary.uncheck()
-  await page.getByText('单机对战').click()
-  assert(!(await boundary.isChecked()), '大厅选择带入单机')
+  await page.getByRole('button', { name: '开始对局' }).click()
+  assert(!(await boundary.isChecked()), '准备页设置带入单机')
   await boundary.check()
   await boundary.uncheck()
   const status = text => page.locator('.status-note').filter({ hasText: text }).waitFor()

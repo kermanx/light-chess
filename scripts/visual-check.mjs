@@ -12,6 +12,7 @@ page.on('pageerror', (e) => console.log('[pageerror]', e.message))
 
 await page.goto(BASE + '/', { waitUntil: 'networkidle' })
 await page.getByText('单机对战').click()
+await page.getByRole('button', { name: '开始对局' }).click()
 await page.waitForSelector('svg.board-svg')
 
 const status = () => page.locator('.status-note').innerText()

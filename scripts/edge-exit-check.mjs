@@ -6,6 +6,7 @@ const p = await ctx.newPage()
 p.on('pageerror', (e) => console.log('[pageerror]', e.message))
 await p.goto('http://localhost:5173/', { waitUntil: 'domcontentloaded' })
 await p.getByText('单机对战').click()
+await p.getByRole('button', { name: '开始对局' }).click()
 await p.waitForSelector('svg.board-svg')
 const clickU = async (ux, uy) => {
   const box = await p.locator('svg.board-svg').boundingBox()

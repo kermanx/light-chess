@@ -57,6 +57,7 @@ const hedge = (x, y) => [PAD + (x + 0.5) * S, PAD + y * S]
 // ===== 联机 2 人局 =====
 const A = await mk('A')
 await A.getByText('创建房间').click()
+await A.getByRole('button', { name: '创建并等待' }).click()
 await A.waitForSelector('.room-code')
 const code = (await A.locator('.room-code').innerText()).trim()
 const B = await mk('B')
@@ -161,6 +162,7 @@ console.log('ok: 非房主撤回自己开启后下的那手，双端局面一致
 // ===== 单机：撤回按钮始终可用 =====
 const C = await mk('C')
 await C.getByText('单机对战').click()
+await C.getByRole('button', { name: '开始对局' }).click()
 await C.waitForSelector('svg.board-svg')
 const dc = drv(C)
 await dc.clickU(...cell(6, 6))

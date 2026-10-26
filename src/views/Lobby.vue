@@ -6,7 +6,8 @@ import { isValidCode, netClose, netCreate, netJoin, signaling, type Signaling } 
 import { SIZE_MAX, SIZE_MIN, startLocal, state } from '../store'
 import ClockSettings from '../components/ClockSettings.vue'
 
-const view = ref<'menu' | 'created' | 'join'>('menu')
+const view = ref<'menu' | 'configure' | 'created' | 'join'>('menu')
+const preparing = ref<'local' | 'online'>('local')
 const code = ref('')
 const joinCode = ref('')
 const error = ref('')
@@ -53,6 +54,12 @@ function clampSize(e: Event) {
 
 function local() {
   startLocal(count.value)
+}
+
+function prepare(mode: 'local' | 'online') {
+  preparing.value = mode
+  error.value = ''
+  view.value = 'configure'
 }
 
 // ---------- 公开房间：广播与监听的生命周期 ----------
@@ -178,41 +185,58 @@ onMounted(() => {
     <p class="tagline">纸上的激光反射对决</p>
 
     <div v-if="view === 'menu'" class="menu">
-      <div class="count-ctl">
-        人数
-        <button
-          v-for="n in countOptions"
-          :key="n"
-          class="count-btn"
-          :class="{ active: count === n }"
-          @click="count = n"
-        >
-          {{ n }}
-        </button>
-      </div>
       <div class="cards">
-        <button class="card" @click="local">
+        <button class="card" @click="prepare('local')">
           <span class="card-title">单机对战</span>
-          <span class="card-desc">{{ count }} 人同屏，轮流操作</span>
+          <span class="card-desc">同屏对弈，轮流出招</span>
         </button>
-        <button class="card" :disabled="busy" @click="create">
+        <button class="card" :disabled="busy" @click="prepare('online')">
           <span class="card-title">创建房间</span>
-          <span class="card-desc">{{ count }} 人联机，你坐 1 号位</span>
+          <span class="card-desc">邀请朋友，在线对决</span>
         </button>
         <button class="card" :disabled="busy" @click="view = 'join'">
           <span class="card-title">加入房间</span>
           <span class="card-desc">输入房间号入座</span>
         </button>
       </div>
-      <label class="laser-opt">
-        <input type="checkbox" v-model="state.boundaryReflects" />
-        边界反射（所有光线碰到边界都会反射）
-      </label>
-      <label class="laser-opt pub-opt">
-        <input type="checkbox" v-model="pub" />
-        公开房间（创建后其他玩家可在加入页直接看到并加入）
-      </label>
-      <ClockSettings :settings="state.clockSettings" @change="state.clockSettings = $event" />
+    </div>
+
+    <div v-else-if="view === 'configure'" class="panel">
+      <div class="panel-head">
+        <h2 class="panel-title">{{ preparing === 'local' ? '单机对战' : '创建房间' }}</h2>
+        <p class="panel-label">准备好，就开始吧</p>
+      </div>
+      <fieldset class="prepare-settings" :disabled="busy">
+        <div class="count-ctl">
+          人数
+          <button
+            v-for="n in countOptions"
+            :key="n"
+            class="count-btn"
+            :class="{ active: count === n }"
+            :aria-pressed="count === n"
+            :aria-label="`${n} 人`"
+            @click="count = n"
+          >
+            {{ n }}
+          </button>
+        </div>
+        <ClockSettings :settings="state.clockSettings" @change="state.clockSettings = $event" />
+        <label class="laser-opt">
+          <input type="checkbox" v-model="state.boundaryReflects" />
+          边界反射
+        </label>
+        <label v-if="preparing === 'online'" class="laser-opt pub-opt">
+          <input type="checkbox" v-model="pub" />
+          公开房间（允许其他玩家发现并加入）
+        </label>
+      </fieldset>
+      <div class="row">
+        <button class="btn-primary" :disabled="busy" @click="preparing === 'local' ? local() : create()">
+          {{ preparing === 'local' ? '开始对局' : busy ? '正在创建…' : '创建并等待' }}
+        </button>
+        <button class="btn-plain" :disabled="busy" @click="cancel">返回</button>
+      </div>
     </div>
 
     <div v-else-if="view === 'created'" class="panel">
@@ -357,6 +381,15 @@ onMounted(() => {
   flex-direction: column;
   align-items: center;
   gap: 26px;
+}
+.prepare-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+  padding: 10px 0;
+  margin: 0;
+  border: 0;
 }
 .count-ctl {
   display: flex;
@@ -620,11 +653,6 @@ onMounted(() => {
 .cancel-btn {
   align-self: center;
   min-width: 120px;
-}
-.pub-opt {
-  justify-content: center;
-  font-size: 13px;
-  color: #8a7f68;
 }
 .public-rooms {
   display: flex;

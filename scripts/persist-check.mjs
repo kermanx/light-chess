@@ -62,6 +62,7 @@ function makeDriver(page) {
   const d = makeDriver(page)
   await page.goto(BASE + '/', { waitUntil: 'networkidle' })
   await page.getByText('单机对战').click()
+  await page.getByRole('button', { name: '开始对局' }).click()
   await page.waitForSelector('svg.board-svg')
   await d.clickCell(10, 12) // 蓝家
   await d.clickEdgeU(PAD + 11 * S, PAD + 12.5 * S) // 出口
@@ -97,6 +98,7 @@ function makeDriver(page) {
 
   await A.goto(BASE + '/', { waitUntil: 'networkidle' })
   await A.getByText('创建房间').click()
+  await A.getByRole('button', { name: '创建并等待' }).click()
   await A.waitForSelector('.room-code')
   const code = (await A.locator('.room-code').innerText()).trim()
   console.log('房间号', code)

@@ -35,8 +35,9 @@ const newPage = async (tag) => {
 
 // ===== 场景 1：私密房间不出现在公开列表 =====
 const A1 = await newPage('A1')
-await A1.locator('.pub-opt input').uncheck()
 await A1.getByText('创建房间').click()
+await A1.locator('.pub-opt input').uncheck()
+await A1.getByRole('button', { name: '创建并等待' }).click()
 await A1.waitForSelector('.room-code')
 const privCode = (await A1.locator('.room-code').innerText()).trim()
 console.log('私密房间号', privCode)
@@ -52,9 +53,10 @@ await B1.close()
 
 // ===== 场景 2：公开房间（默认勾选）出现在列表并可点击入座 =====
 const A2 = await newPage('A2')
+await A2.getByText('创建房间').click()
 const pubChecked = await A2.locator('.pub-opt input').isChecked()
 if (!pubChecked) throw new Error('「公开房间」应默认勾选')
-await A2.getByText('创建房间').click()
+await A2.getByRole('button', { name: '创建并等待' }).click()
 await A2.waitForSelector('.room-code')
 const pubCode = (await A2.locator('.room-code').innerText()).trim()
 console.log('公开房间号', pubCode)

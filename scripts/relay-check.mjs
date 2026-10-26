@@ -153,8 +153,9 @@ try {
     gamePages.push(page)
   }
   const [host, guest] = gamePages
-  await host.locator('.pub-opt input').uncheck()
   await host.getByText('创建房间', { exact: true }).click()
+  await host.locator('.pub-opt input').uncheck()
+  await host.getByRole('button', { name: '创建并等待' }).click()
   const code = await host.locator('.room-code').innerText()
   const namespace = `light-chess-kermanx/room-${code}`
   gameTopic = 'light-chess/v1/' + createHash('sha256').update(`topic/${namespace}`).digest('hex')
