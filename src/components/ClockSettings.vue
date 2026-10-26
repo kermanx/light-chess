@@ -16,7 +16,7 @@ function change(field: keyof ClockSettings, event: Event) {
   <fieldset class="clock-settings" :disabled="disabled">
     <label class="clock-enable">
       <input type="checkbox" :checked="settings.enabled" @change="change('enabled', $event)" />
-      棋钟（开局前设置）
+      棋钟
     </label>
     <div v-if="settings.enabled" class="clock-options">
       <label>每人

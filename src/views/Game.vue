@@ -790,7 +790,7 @@ const statusText = computed(() => {
       <label class="chk">
         <input type="checkbox" :checked="state.boundaryReflects"
           :disabled="state.phase !== 'setup' || !isHostSide" @change="toggleBoundary" />
-        边界反射（开局前设置）
+        边界反射
       </label>
       <template v-if="state.mode === 'online' && state.myColor === hostColor">
         <label class="chk">
