@@ -53,7 +53,7 @@ npx tsx scripts/setup-check.ts    # 基地位置与开口方向、开局命中�
 npx tsx scripts/clock-check.ts    # 棋钟加秒、超时、撤回、恢复、多人及客户端时差
 npx tsx scripts/store-check.ts    # 规则/回合/围死判定（纯逻辑）
 node scripts/visual-check.mjs     # 单机 UI 冒烟（需 dev 服务器）
-node scripts/victory-check.mjs    # 获胜动画、延迟确认、手机与减少动态效果（自带服务）
+node scripts/victory-check.mjs    # 棋盘致胜光路、命中时序、手机与减少动态效果（自带服务）
 node scripts/enclosure-check.mjs  # 规则开关、边镜/斜镜禁围预览与落子（自带服务）
 node scripts/mp-check.mjs         # 三人联机端到端（需 dev 服务器 + 本地中继）
 node scripts/persist-check.mjs    # 刷新恢复（需 dev 服务器 + 本地中继）

@@ -63,6 +63,8 @@ export interface SimResult {
   segments: [Pt, Pt][]
   /** 一条获胜路径（若 hit），用于高亮 */
   hitPath: Pt[] | null
+  /** 每个被命中基地各自的真实路径，用于逐段播放本次致胜光路。 */
+  hitPaths: Partial<Record<Color, Pt[]>>
 }
 
 export const DX = [1, 0, -1, 0]
@@ -177,7 +179,7 @@ export function simulate(board: BoardState, color: Color): SimResult {
   for (const [c, h] of Object.entries(board.homes)) {
     if (c !== color && h) targets.set(`${h.x},${h.y}`, c as Color)
   }
-  const empty: SimResult = { hit: false, hits: [], segments: [], hitPath: null }
+  const empty: SimResult = { hit: false, hits: [], segments: [], hitPath: null, hitPaths: {} }
   if (!home || targets.size === 0) return empty
   const size = board.size
 
@@ -192,12 +194,11 @@ export function simulate(board: BoardState, color: Color): SimResult {
   const visited = new Set<string>()
   let hit = false
   const hits: Color[] = []
-  let hitNode = -1
+  const hitNodes = new Map<Color, number>()
 
-  const stack = nodes.map((_, i) => i)
-
-  while (stack.length > 0) {
-    const ni = stack.pop()!
+  // 每一步（跨格或到边镜折返）的路程相同，广度优先保留最短命中光路，
+  // 避免动画先沿半反射分支绕棋盘一圈才到达目标。
+  for (let ni = 0; ni < nodes.length; ni++) {
     const node = nodes[ni]
     const key = stateKey(node.x, node.y, node.dir)
     if (visited.has(key)) continue
@@ -207,7 +208,7 @@ export function simulate(board: BoardState, color: Color): SimResult {
     if (target) {
       hit = true
       if (!hits.includes(target)) hits.push(target)
-      if (hitNode === -1) hitNode = ni
+      if (!hitNodes.has(target)) hitNodes.set(target, ni)
       continue // 被打中的家吸收激光
     }
 
@@ -234,7 +235,6 @@ export function simulate(board: BoardState, color: Color): SimResult {
           const c = center(node.x, node.y)
           addSeg(c, mid)
           addSeg(mid, c)
-          stack.push(nodes.length)
           nodes.push({ x: node.x, y: node.y, dir: d2, pts: [mid, c], parent: ni })
         } else {
           const nx = node.x + DX[d2]
@@ -244,7 +244,6 @@ export function simulate(board: BoardState, color: Color): SimResult {
             addSeg(c, edgeMid(eid))
           } else {
             addSeg(c, center(nx, ny))
-            stack.push(nodes.length)
             nodes.push({ x: nx, y: ny, dir: d2, pts: [center(nx, ny)], parent: ni })
           }
         }
@@ -252,15 +251,15 @@ export function simulate(board: BoardState, color: Color): SimResult {
     }
   }
 
-  let hitPath: Pt[] | null = null
-  if (hit) {
+  const hitPaths: Partial<Record<Color, Pt[]>> = {}
+  for (const [color, hitNode] of hitNodes) {
     const rev: Pt[] = []
     for (let i = hitNode; i !== -1; i = nodes[i].parent) {
       const pts = nodes[i].pts
       for (let j = pts.length - 1; j >= 0; j--) rev.push(pts[j])
     }
-    hitPath = [homePt, ...rev.reverse()]
+    hitPaths[color] = [homePt, ...rev.reverse()]
   }
 
-  return { hit, hits, segments: [...segSet.values()], hitPath }
+  return { hit, hits, segments: [...segSet.values()], hitPath: hitPaths[hits[0]] ?? null, hitPaths }
 }

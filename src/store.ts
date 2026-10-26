@@ -15,9 +15,15 @@ import {
   type Home,
   type Mirror,
   type Ori,
+  type Pt,
 } from './game'
 
 export type Phase = 'lobby' | 'setup' | 'play' | 'over'
+
+export interface VictoryReplay {
+  source: Color
+  targets: { color: Color; path: Pt[] }[]
+}
 
 /** 上一步放置的镜子（家的自动镜不算），用于 UI 加粗高亮与撤回权限判定 */
 export type LastMove =
@@ -36,6 +42,7 @@ export interface UndoFrame {
   lastMove: LastMove
   clock?: ClockState
   timedOut?: Color[]
+  victoryReplay?: VictoryReplay | null
 }
 
 export type Action =
@@ -68,6 +75,7 @@ export const state = reactive({
   diags: new Map<string, Diag>(),
   current: 'blue' as Color,
   winner: null as Color | null,
+  victoryReplay: null as VictoryReplay | null,
   /** 已出局的玩家（家被击中；跳过回合，家显示为 ✕） */
   dead: [] as Color[],
   /** 联机：房主是否允许显示光路（默认禁止；单机始终允许） */
@@ -194,6 +202,7 @@ const pushFrame = () => {
     lastMove: state.lastMove,
     clock: { ...state.clock, remaining: { ...state.clock.remaining } },
     timedOut: [...state.timedOut],
+    victoryReplay: state.victoryReplay,
   })
   undoDepth.value = moveHistory.length
 }
@@ -224,6 +233,7 @@ function resetBoard() {
   state.diags.clear()
   state.current = state.players[0]
   state.winner = null
+  state.victoryReplay = null
   state.dead = []
   state.lastMove = null
   state.timedOut = []
@@ -269,6 +279,7 @@ export function toLobby() {
   state.edges.clear()
   state.diags.clear()
   state.winner = null
+  state.victoryReplay = null
   state.dead = []
   state.lastMove = null
   state.sessionId = ''
@@ -292,12 +303,12 @@ function settleTurn() {
   const p = state.current
   if (state.dead.includes(p)) return
   const sim = simulate(board, p)
-  for (const c of sim.hits) {
-    if (c !== p && state.homes[c] && !state.dead.includes(c)) state.dead.push(c)
-  }
+  const eliminated = sim.hits.filter(c => c !== p && state.homes[c] && !state.dead.includes(c))
+  state.dead.push(...eliminated)
   const alive = state.players.filter((c) => !state.dead.includes(c))
   if (alive.length === 1) {
     state.winner = alive[0]
+    state.victoryReplay = { source: p, targets: eliminated.map(color => ({ color, path: sim.hitPaths[color]! })) }
     state.phase = 'over'
   }
 }
@@ -442,6 +453,7 @@ function apply(a: Action, at = Date.now()) {
     return
   }
   if (a.kind === 'timeout') {
+    state.victoryReplay = null
     holdClock(at)
     state.clock.remaining[a.color] = 0
     state.dead.push(a.color)
@@ -471,6 +483,7 @@ function apply(a: Action, at = Date.now()) {
     state.current = f.current
     state.dead = [...f.dead]
     state.winner = f.winner
+    state.victoryReplay = f.victoryReplay ?? null
     state.phase = f.phase
     state.lastMove = f.lastMove
     state.timedOut = [...(f.timedOut ?? [])]
@@ -577,6 +590,7 @@ export interface Snapshot {
   diags: [string, Diag][]
   current: Color
   winner: Color | null
+  victoryReplay?: VictoryReplay | null
   /** 已出局玩家；缺省视为无 */
   dead?: Color[]
   laserAllowed: boolean
@@ -607,6 +621,7 @@ export function serialize(): Snapshot {
     diags: [...state.diags],
     current: state.current,
     winner: state.winner,
+    victoryReplay: state.victoryReplay,
     dead: [...state.dead],
     laserAllowed: state.laserAllowed,
     allowUndo: state.allowUndo,
@@ -644,6 +659,7 @@ export function applySnapshot(s: Snapshot, preserveIdentity = false) {
   for (const [k, v] of s.diags) state.diags.set(k, v)
   state.current = s.current
   state.winner = s.winner
+  state.victoryReplay = s.victoryReplay ?? null
   state.dead = s.dead?.length ? [...s.dead] : []
   state.laserAllowed = s.laserAllowed
   state.allowUndo = s.allowUndo ?? false

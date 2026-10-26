@@ -2,7 +2,8 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import ClockSettings from '../components/ClockSettings.vue'
 import ChessClock from '../components/ChessClock.vue'
-import VictoryCelebration from '../components/VictoryCelebration.vue'
+import VictoryBeam from '../components/VictoryBeam.vue'
+import GameResult from '../components/GameResult.vue'
 import type { ClockSettings as ClockConfig } from '../clock'
 import {
   edgeMid,
@@ -47,7 +48,19 @@ const hoverCell = ref<Pt | null>(null)
 /** setup 阶段：已点选家、等待选出口的格子 */
 const pendingHome = ref<Pt | null>(null)
 const victoryDismissed = ref(false)
-watch(() => [state.phase, state.winner], () => { victoryDismissed.value = false })
+const victoryReady = ref(false)
+const victoryImpacts = ref<Color[]>([])
+watch(() => [state.phase, state.winner], () => {
+  victoryDismissed.value = false
+  victoryReady.value = false
+  victoryImpacts.value = []
+})
+const hasVictoryPath = computed(() => Boolean(state.victoryReplay?.targets.length))
+const replayVisible = computed(() => state.phase === 'over' && hasVictoryPath.value && !victoryDismissed.value)
+const replayPlaying = computed(() => replayVisible.value && !victoryReady.value)
+const isVisiblyDead = (color: Color) => state.dead.includes(color) && !(
+  replayPlaying.value && state.victoryReplay?.targets.some(t => t.color === color) && !victoryImpacts.value.includes(color)
+)
 
 // ---------- 网格数据（随棋盘尺寸变化） ----------
 const dots = computed(() => {
@@ -384,7 +397,7 @@ const hoverHomeColor = computed<Color | null>(() => {
   }
   return null
 })
-const showPath = computed(() => hoverHomeColor.value)
+const showPath = computed(() => replayVisible.value ? null : hoverHomeColor.value)
 
 function toggleLaser(e: Event) {
   dispatch({ kind: 'laser-setting', color: hostColor.value, allow: (e.target as HTMLInputElement).checked })
@@ -470,6 +483,7 @@ const statusColor = computed<Color | null>(() => {
 })
 
 const statusText = computed(() => {
+  if (replayPlaying.value) return '致胜光路…'
   if (state.peerLeft) return '有玩家掉线，等待重连…'
   if (ghostEdgeBad.value || ghostCellBad.value) return '此处放镜会把某对玩家的家隔开，不能放'
   if (state.phase === 'over') return `${name(state.winner!)}获胜！`
@@ -617,14 +631,15 @@ const statusText = computed(() => {
           <template v-for="c in state.players" :key="c">
             <template v-if="state.homes[c]">
               <circle
-                v-if="!state.dead.includes(c)"
+                v-if="!isVisiblyDead(c)"
+                :data-home="c"
                 :cx="u(state.homes[c]!.x + 0.5)"
                 :cy="u(state.homes[c]!.y + 0.5)"
                 :r="S * 0.2"
                 :fill="COLORS[c]"
                 class="no-events"
               />
-              <g v-else class="dead-x no-events" :fill="COLORS[c]">
+              <g v-else class="dead-x no-events" :fill="COLORS[c]" :data-dead-home="c">
                 <path
                   :d="
                     penStroke(
@@ -744,10 +759,12 @@ const statusText = computed(() => {
           @mouseleave="hoverExitDir = null"
           @click="exitClick"
         />
+        <VictoryBeam v-if="replayVisible && state.victoryReplay" :replay="state.victoryReplay" :spacing="S" :padding="PAD"
+          @impact="victoryImpacts.push($event)" @complete="victoryReady = true" />
       </svg>
 
-      <VictoryCelebration v-if="state.phase === 'over' && state.winner && !victoryDismissed"
-        :key="state.winner" :winner="state.winner" :timed-out="state.timedOut" @confirm="victoryDismissed = true" />
+      <GameResult v-if="state.phase === 'over' && state.winner && !victoryDismissed && (!hasVictoryPath || victoryReady)"
+        :winner="state.winner" :timed-out="state.timedOut" :laser-win="hasVictoryPath" @confirm="victoryDismissed = true" />
     </div>
 
     <aside class="side">

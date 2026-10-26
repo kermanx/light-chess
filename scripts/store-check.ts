@@ -1,5 +1,5 @@
 // store 层（dispatch 全链路）围死校验复现测试
-import { applyRemote, dispatch, startLocal, state, topUndoFrame, undoDepth, wouldEnclose, wouldEncloseDiag } from '../src/store'
+import { applyRemote, applySnapshot, dispatch, serialize, startLocal, state, topUndoFrame, undoDepth, wouldEnclose, wouldEncloseDiag } from '../src/store'
 
 function assert(cond: boolean, msg: string) {
   if (!cond) throw new Error(`FAIL: ${msg}`)
@@ -127,12 +127,17 @@ assert(state.current === 'red', '放镜后轮到红方')
 dispatch({ kind: 'edge', color: 'red', id: 'h:28:25' }) // 红方放弃自救
 assert(state.phase === 'over' && state.winner === 'blue', '红方行动后轮到蓝方，回合开头结算：红死蓝胜')
 assert(state.dead.includes('red'), '红方计入出局名单')
+assert(state.victoryReplay?.source === 'blue' && state.victoryReplay.targets[0]?.color === 'red', '致胜光路记录发射方和本次被击中的基地')
+const winningPath = state.victoryReplay!.targets[0].path
+assert(winningPath[0].x === 10.5 && winningPath[0].y === 12.5 && winningPath.at(-1)!.x === 20.5 && winningPath.at(-1)!.y === 13.5, '致胜光路从蓝基地中心到红基地中心')
+assert([[24.5, 12.5], [24.5, 16.5], [20.5, 16.5]].every(([x, y]) => winningPath.some(p => p.x === x && p.y === y)), '致胜光路保留沿途镜子的实际转向')
 
 // 撤回复活：撤销红方弃疗那手，局面回到击杀走廊闭合、红方待行动
 dispatch({ kind: 'undo', color: 'blue', frame: topUndoFrame()! })
 assert(state.phase === 'play' && state.winner === null && state.dead.length === 0, '对局结束后仍可撤回：红方复活')
 assert(state.current === 'red', '撤回后回到红方回合')
 assert(state.lastMove?.kind === 'diag' && state.lastMove.key === '20,16', '撤回后上一步回退到蓝方走廊镜')
+assert(state.victoryReplay === null, '撤回获胜一步清除致胜光路')
 
 // 场景 F：三人局淘汰制——B 死后对局继续、轮转跳过、出局者不能操作、围死判定忽略死家
 startLocal(3)
@@ -187,6 +192,11 @@ assert(state.phase === 'play' && !state.dead.includes('yellow'), '击杀黄同�
 dispatch({ kind: 'edge', color: 'yellow', id: 'h:34:25' })
 assert(state.phase === 'over' && state.winner === 'blue', '黄死后只剩蓝方，蓝方获胜')
 assert(state.dead.includes('yellow'), '黄方计入出局名单')
+assert(state.victoryReplay?.targets.length === 1 && state.victoryReplay.targets[0].color === 'yellow', '多人局只播放本次致胜目标，不重播此前已经出局的基地')
+const savedWin = JSON.parse(JSON.stringify(serialize()))
+startLocal(2)
+applySnapshot(savedWin)
+assert(JSON.stringify(state.victoryReplay) === JSON.stringify(savedWin.victoryReplay), '联机快照与恢复存档保留同一条致胜光路')
 
 // 场景 G：撤回一步与上一步记录（单机始终允许撤回）
 startLocal(2)
