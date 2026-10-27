@@ -61,9 +61,6 @@ export const moverColor = (mover: number): Color => (mover === 0 ? 'blue' : 'red
 /** ply 估值翻成蓝方视角 */
 export const blueValue = (p: PlyLine): number => (p.mover === 0 ? p.value : -p.value)
 
-/** 分析端点只支持 6×6 / 8×8 棋盘 */
-export const reviewSizeOk = (size: number) => size === 6 || size === 8
-
 export const review = reactive({
   active: false,
   size: 6,
@@ -229,20 +226,4 @@ function schedulePlay() {
 watch(
   () => review.playing,
   () => schedulePlay(),
-)
-
-// 对局结束自动展开复盘（人机 / AI vs AI / 人人本地统一；仅 6×6、8×8 支持分析端点）
-watch(
-  () => state.phase,
-  (p, prev) => {
-    if (
-      p === 'over' &&
-      prev !== 'over' &&
-      state.mode === 'local' &&
-      state.moves.length > 0 &&
-      reviewSizeOk(state.size)
-    ) {
-      openReview()
-    }
-  },
 )

@@ -826,7 +826,9 @@ const statusText = computed(() => {
       </svg>
 
       <GameResult v-if="state.phase === 'over' && state.winner && !victoryDismissed && (!hasVictoryPath || victoryReady)"
-        :winner="state.winner" :timed-out="state.timedOut" :laser-win="hasVictoryPath" @confirm="victoryDismissed = true" />
+        :winner="state.winner" :timed-out="state.timedOut" :laser-win="hasVictoryPath"
+        :show-review="state.mode === 'local'"
+        @confirm="victoryDismissed = true" @review="openReview()" />
     </div>
 
     <aside class="side">

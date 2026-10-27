@@ -57,18 +57,21 @@ try {
   assert(snap.values.every(v => v >= -1 && v <= 1), 'value 在 [-1,1]')
   console.log('ok: NDJSON 流逐 ply 消费完成', JSON.stringify(snap.values))
 
-  // 自动播放把 cursor 推到末尾；top 候选灰线与 Q 数字出现在棋盘上
+  // 自动播放把 cursor 推到末尾；候选进侧栏列表，曲线逐段绘制
   await page.waitForFunction(
     () => window.__review.cursor === window.__review.plies.length && !window.__review.playing,
     null,
     { timeout: 15000 },
   )
-  assert(await page.locator('[data-top-overlay] line').count() >= 1, 'top 候选灰线已绘制')
-  assert(await page.locator('[data-top-overlay] text').count() >= 1, 'Q 值数字已标注')
-  assert.equal(await page.locator('[data-value-curve] circle').count() >= 4, true, '曲线逐点绘制')
+  assert(await page.locator('.cand-row').count() >= 1, 'top 候选收进侧栏列表')
+  assert(await page.locator('[data-value-curve] polyline').count() === 1, '对抗曲线主线已绘制')
+  assert(await page.locator('[data-value-curve] path').count() >= 1, '蓝/红优势区域填充已绘制')
+
+  // 悬停候选列表项在棋盘上预览该条（若与 top-1/实际重合则无预览线，仅验证不报错）
+  await page.locator('.cand-row').last().hover()
 
   // 拖拽步进条跳 ply；播放/暂停切换
-  // 死步默认折叠为「僵持 ×N」，展开后才能点到单个 ply
+  // 死步默认折叠为「…N」，展开后才能点到单个 ply
   const runBtn = page.locator('.run-btn')
   if (await runBtn.count()) {
     await runBtn.first().click()
@@ -86,7 +89,7 @@ try {
   await page.getByRole('button', { name: '返回对局' }).click()
   assert.equal(await page.locator('[data-review-board]').count(), 0)
 
-  // 对局结束自动展开复盘（超时获胜也算；人人本地局由前端持有 homes+moves 直接提交）
+  // 对局结束不再自动跳转：复盘入口在结算弹窗里，用户主动点才进
   await page.evaluate(async () => {
     const { dispatch, startLocal, state, tickClock } = await import('/src/store.ts')
     state.size = 6
@@ -97,12 +100,17 @@ try {
     dispatch({ kind: 'edge', color: 'blue', id: 'h:2:2' })
     tickClock(state.clock.runningSince + state.clock.remaining.red + 1)
   })
+  await page.waitForTimeout(300)
+  assert.equal(await page.evaluate(() => window.__review.active), false, '对局结束不自动打开复盘')
+  const dialog = page.getByRole('dialog', { name: '蓝方获胜' })
+  await dialog.waitFor()
+  await dialog.getByRole('button', { name: '复盘分析' }).click()
   await page.locator('[data-review-board]').waitFor()
-  assert(await page.evaluate(() => window.__review.active), '对局结束自动打开复盘')
+  assert(await page.evaluate(() => window.__review.active), '从结算弹窗进入复盘')
   assert.equal(await page.evaluate(() => window.__review.moves.length), 1, '复盘携带本局 moves')
   await page.getByRole('button', { name: '返回对局' }).click()
   assert.deepEqual(errors, [])
-  console.log('ok: 对局结束自动展开复盘（含超时获胜的人人本地局）')
+  console.log('ok: 结算弹窗手动进入复盘（不自动跳转）')
   console.log('ok: 复盘页播放/步进/候选/曲线/返回全部正常')
 } finally {
   await browser.close()
