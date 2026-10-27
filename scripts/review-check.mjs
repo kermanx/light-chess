@@ -28,6 +28,7 @@ try {
     const { review, openReview } = await import('/src/review.ts')
     review.sims = 50
     review.coach = 'purez_ext/gen24'
+    review.second = 'vmixanneal/gen16'
     openReview()
     ;window.__review = review
   })
@@ -55,6 +56,8 @@ try {
   assert.equal(snap.total, 4)
   assert(snap.final, '收到 final')
   assert(snap.values.every(v => v >= -1 && v <= 1), 'value 在 [-1,1]')
+  const withSecond = await page.evaluate(() => window.__review.plies.filter(p => p.second && p.second.top).length)
+  assert.equal(withSecond, 4, '第二意见（新格式 value+top）逐 ply 流入')
   console.log('ok: NDJSON 流逐 ply 消费完成', JSON.stringify(snap.values))
 
   // 自动播放把 cursor 推到末尾；候选进侧栏列表，曲线逐段绘制
@@ -64,7 +67,10 @@ try {
     { timeout: 15000 },
   )
   assert(await page.locator('.cand-row').count() >= 1, 'top 候选收进侧栏列表')
-  assert(await page.locator('[data-value-curve] polyline').count() === 1, '对抗曲线主线已绘制')
+  assert(await page.locator('[data-value-curve] polyline').count() === 2, '教练主线 + 第二意见虚线')
+  assert(await page.locator('[data-second-curve]').count() === 1, '第二意见曲线已绘制')
+  assert(await page.locator('.cand-row .cand-q2:not(.cand-q2-empty)').count() >= 1, '候选行并列第二意见 ②Q')
+  assert(await page.locator('.cur-ply .cur-q2').count() === 1, '当前手主卡含第二意见估值')
   assert(await page.locator('[data-value-curve] path').count() >= 1, '蓝/红优势区域填充已绘制')
 
   // 悬停候选列表项在棋盘上预览该条：动效线始终出现（即使是 top-1/实际所下）
@@ -95,7 +101,7 @@ try {
     await runBtn.first().click()
     assert.equal(await page.locator('.run-btn').count(), 0, '僵持段展开为单步')
   }
-  await page.locator('.ply-btn', { hasText: '2' }).first().click()
+  await page.locator('.ply-btn').nth(1).click()
   let cur = await page.evaluate(() => window.__review.cursor)
   assert.equal(cur, 2, '步进条跳到第 2 手')
   await page.getByRole('button', { name: '播放' }).click()

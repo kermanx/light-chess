@@ -43,7 +43,8 @@ export interface PlyLine {
   value: number
   top: TopMove[]
   dead: boolean
-  second: { move: ReviewMove; q: number } | null
+  /** 第二意见：value 相对行棋方（与 coach 同约定），top 至多 3 条 */
+  second: { value: number; top: TopMove[] } | null
   progress: { done: number; total: number }
 }
 
@@ -60,6 +61,10 @@ export const moverColor = (mover: number): Color => (mover === 0 ? 'blue' : 'red
 
 /** ply 估值翻成蓝方视角 */
 export const blueValue = (p: PlyLine): number => (p.mover === 0 ? p.value : -p.value)
+
+/** 第二意见估值翻成蓝方视角（未开二见时为 null） */
+export const blueSecond = (p: PlyLine): number | null =>
+  p.second ? (p.mover === 0 ? p.second.value : -p.second.value) : null
 
 export const review = reactive({
   active: false,

@@ -15,6 +15,7 @@ import {
 } from '../game'
 import {
   blueValue,
+  blueSecond,
   closeReview,
   moverColor,
   moveText,
@@ -153,11 +154,12 @@ const mirrorColor = (kind: 'e' | 'd', key: string, color: Color) =>
 /** 第二意见与 coach top-1 分歧 */
 const secondDiff = computed(() => {
   const p = curPly.value
-  if (!p?.second || !p.top.length) return null
-  if (sameMove(p.second.move, p.top[0].move)) return null
+  const sTop = p?.second?.top[0]
+  if (!p || !sTop || !p.top.length) return null
+  if (sameMove(sTop.move, p.top[0].move)) return null
   return {
     at: moveMid(p.move),
-    text: `第二意见 ${review.meta?.second ?? review.second}：${moveText(p.second.move)}，Q=${p.second.q.toFixed(2)}`,
+    text: `第二意见 ${review.meta?.second ?? review.second}：${moveText(sTop.move)}，Q=${sTop.q.toFixed(2)}`,
   }
 })
 
@@ -192,7 +194,7 @@ const diffPlies = computed(
   () =>
     new Set(
       review.plies
-        .filter((p) => p.second && p.top.length && !sameMove(p.second.move, p.top[0].move))
+        .filter((p) => p.second?.top.length && p.top.length && !sameMove(p.second.top[0].move, p.top[0].move))
         .map((p) => p.ply),
     ),
 )
@@ -217,6 +219,25 @@ const band = (pick: (v: number) => number) => {
 const blueBand = computed(() => band((v) => Math.max(0, v)))
 const redBand = computed(() => band((v) => Math.min(0, v)))
 const curveLine = computed(() => review.plies.map((p) => `${cx(p.ply)},${cy(blueValue(p))}`).join(' '))
+/** 第二意见曲线（蓝方视角，虚线；未开二见为空） */
+const secondLine = computed(() =>
+  review.plies
+    .filter((p) => p.second)
+    .map((p) => `${cx(p.ply)},${cy(blueSecond(p)!)}`)
+    .join(' '),
+)
+/** 模型短名（run 部分），tooltip 给全 id */
+const shortModel = (id: string) => id.split('/')[0]
+/** 当前手第二意见对各候选的 Q（move key → q） */
+const secondQ = computed(() => {
+  const m = new Map<string, number>()
+  for (const t of curPly.value?.second?.top ?? []) {
+    m.set(t.move.kind === 'edge' ? `e:${t.move.id}` : `d:${t.move.x},${t.move.y},${t.move.ori}`, t.q)
+  }
+  return m
+})
+const secondQOf = (mv: ReviewMove) =>
+  secondQ.value.get(mv.kind === 'edge' ? `e:${mv.id}` : `d:${mv.x},${mv.y},${mv.ori}`) ?? null
 const deadBands = computed(() => {
   const bands: { x: number; w: number; len: number }[] = []
   const ps = review.plies
@@ -429,6 +450,12 @@ const backLabel = computed(() => (state.phase === 'lobby' ? '返回大厅' : '�
           <span class="cur-q" :class="qClass(blueValue(curPly))" :title="`局面估值（蓝方视角）：${qSign(blueValue(curPly))} 对蓝方${blueValue(curPly) >= 0 ? '有利' : '不利'}`">
             {{ qSign(blueValue(curPly)) }} {{ Math.abs(blueValue(curPly)).toFixed(2) }}
           </span>
+          <span
+            v-if="curPly.second"
+            class="cur-q2"
+            :class="qClass(blueSecond(curPly)!)"
+            :title="`第二意见 ${review.meta?.second ?? review.second} 估值（蓝方视角）`"
+          >② {{ qSign(blueSecond(curPly)!) }}{{ Math.abs(blueSecond(curPly)!).toFixed(2) }}</span>
         </div>
         <div class="cur-tags">
           <span
@@ -462,12 +489,29 @@ const backLabel = computed(() => (state.phase === 'lobby' ? '返回大厅' : '�
           <span class="cand-q" :class="qClass(t.q)" :title="`Q=${t.q.toFixed(3)}，${qSign(t.q)} 对行棋方${t.q >= 0 ? '有利' : '不利'}`">
             {{ qSign(t.q) }} {{ Math.abs(t.q).toFixed(2) }}
           </span>
+          <span
+            v-if="secondQOf(t.move) !== null"
+            class="cand-q2"
+            :class="qClass(secondQOf(t.move)!)"
+            :title="`第二意见 Q=${secondQOf(t.move)!.toFixed(3)}`"
+          >②{{ qSign(secondQOf(t.move)!) }}{{ Math.abs(secondQOf(t.move)!).toFixed(2) }}</span>
+          <span v-else-if="curPly?.second" class="cand-q2 cand-q2-empty"></span>
         </button>
       </div>
 
       <!-- 对抗估值曲线：上蓝下红 -->
       <div class="note">
-        <p class="note-title">局势 <span class="hint"><i class="sq sq-b"></i>蓝优 <i class="sq sq-r"></i>红优</span></p>
+        <p class="note-title">
+          局势 <span class="hint"><i class="sq sq-b"></i>蓝优 <i class="sq sq-r"></i>红优</span>
+          <span class="legend">
+          <span class="lg" :title="review.meta?.coach ?? review.coach">
+            <i class="lg-line lg-solid"></i>{{ shortModel(review.meta?.coach ?? review.coach) }}
+          </span>
+          <span v-if="review.meta?.second" class="lg" :title="review.meta.second">
+            <i class="lg-line lg-dash"></i>{{ shortModel(review.meta.second) }}
+          </span>
+          </span>
+        </p>
         <svg :viewBox="`0 0 ${CW} ${CH}`" class="curve" data-value-curve>
           <g v-for="(b, i) in deadBands" :key="`b${i}`">
             <rect :x="b.x" y="4" :width="Math.max(b.w, 2)" :height="CH - 8" fill="#9a917e" opacity="0.08">
@@ -478,6 +522,15 @@ const backLabel = computed(() => (state.phase === 'lobby' ? '返回大厅' : '�
           <path v-if="redBand" :d="redBand" fill="#e84a3c" opacity="0.22" />
           <line :x1="CPAD" :x2="CW - CPAD" :y1="MID" :y2="MID" stroke="#b0a488" stroke-width="1" stroke-dasharray="3 3" />
           <polyline v-if="curveLine" :points="curveLine" fill="none" stroke="#35301f" stroke-width="1.4" />
+          <polyline
+            v-if="secondLine"
+            :points="secondLine"
+            fill="none"
+            stroke="#8a7f68"
+            stroke-width="1.2"
+            stroke-dasharray="4 2.5"
+            data-second-curve
+          />
           <circle
             v-for="b in blunderDots"
             :key="`bl${b.ply}`"
@@ -752,6 +805,11 @@ const backLabel = computed(() => (state.phase === 'lobby' ? '返回大厅' : '�
   font-weight: 700;
   cursor: help;
 }
+.cur-q2 {
+  font-size: 12px;
+  font-weight: 700;
+  cursor: help;
+}
 .q-pos {
   color: #2c8a4e;
 }
@@ -821,11 +879,44 @@ const backLabel = computed(() => (state.phase === 'lobby' ? '返回大厅' : '�
   font-variant-numeric: tabular-nums;
   cursor: help;
 }
+.cand-q2 {
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  cursor: help;
+  min-width: 40px;
+  text-align: right;
+}
+.cand-q2-empty {
+  cursor: default;
+}
 /* 曲线 */
 .curve {
   display: block;
   width: 100%;
   height: auto;
+}
+.legend {
+  float: right;
+  display: flex;
+  gap: 10px;
+}
+.lg {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10.5px;
+  font-weight: 400;
+  color: #8a7f68;
+  cursor: help;
+}
+.lg-line {
+  display: inline-block;
+  width: 14px;
+  border-top: 2px solid #35301f;
+}
+.lg-dash {
+  border-top-style: dashed;
+  border-top-color: #8a7f68;
 }
 .sq {
   display: inline-block;
