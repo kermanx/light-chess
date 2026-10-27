@@ -67,8 +67,26 @@ try {
   assert(await page.locator('[data-value-curve] polyline').count() === 1, '对抗曲线主线已绘制')
   assert(await page.locator('[data-value-curve] path').count() >= 1, '蓝/红优势区域填充已绘制')
 
-  // 悬停候选列表项在棋盘上预览该条（若与 top-1/实际重合则无预览线，仅验证不报错）
-  await page.locator('.cand-row').last().hover()
+  // 悬停候选列表项在棋盘上预览该条：动效线始终出现（即使是 top-1/实际所下）
+  await page.locator('.cand-row').first().hover()
+  const previewLine = page.locator('[data-cand-preview] .cand-preview-line')
+  await previewLine.waitFor()
+  assert.equal(
+    await previewLine.evaluate(el => getComputedStyle(el).animationName.startsWith('cand-flow')),
+    true,
+    '候选预览线为流动虚线动效',
+  )
+  await page.locator('.cand-row').first().hover().then(() => page.mouse.move(0, 0))
+  await page.waitForTimeout(100)
+
+  // 悬停「家」高亮该方光路，移开恢复淡化；双方独立
+  await page.locator('[data-home-hit="blue"]').hover({ force: true })
+  await page.locator('[data-laser="blue"] .laser-hot').waitFor()
+  assert.equal(await page.locator('[data-laser="red"] .laser-dim').count(), 1, '另一方光路仍淡化')
+  assert.equal(await page.locator('[data-laser="blue"] .laser-glow').count(), 1, '高亮带 glow 层')
+  await page.mouse.move(0, 0)
+  await page.waitForFunction(() => !document.querySelector('[data-laser="blue"] .laser-hot'))
+  assert.equal(await page.locator('[data-laser="blue"] .laser-dim').count(), 1, '移开后恢复淡化')
 
   // 拖拽步进条跳 ply；播放/暂停切换
   // 死步默认折叠为「…N」，展开后才能点到单个 ply

@@ -81,6 +81,9 @@ const lasers = computed(() => {
   return m
 })
 
+/** 悬停某方的家（激光源）时高亮该方光路；双方各自独立 */
+const hoverHome = ref<Color | null>(null)
+
 const segPath = (segments: [Pt, Pt][]) =>
   segments.map(([p, q]) => `M${u(p.x)} ${u(p.y)}L${u(q.x)} ${u(q.y)}`).join('')
 
@@ -126,15 +129,12 @@ const top1Overlay = computed(() => {
   }
 })
 
-/** 侧栏候选列表悬停/点击时在棋盘上预览该条 */
+/** 侧栏候选列表悬停/点击时在棋盘上预览该条：无论它是否已是 top-1/实际所下，
+ * 都画一条流动虚线 + 发光加粗，确保「指哪条看见哪条」 */
 const previewMove = ref<ReviewMove | null>(null)
 const previewOverlay = computed(() => {
   const m = previewMove.value
-  if (!m) return null
-  if (top1Overlay.value && sameMove(m, curPly.value!.top[0].move)) return null // 已在棋盘上
-  const p = curPly.value
-  if (p && sameMove(m, p.move)) return null // 实际所下已在棋盘上
-  return { line: moveLine(m) }
+  return m ? { line: moveLine(m) } : null
 })
 
 /** 实际所下着法与 top-1 不一致 → 该步标灰 */
@@ -278,10 +278,20 @@ const backLabel = computed(() => (state.phase === 'lobby' ? '返回大厅' : '�
       <svg class="board-svg" :viewBox="`0 0 ${SIZE} ${SIZE}`" data-review-board>
         <circle v-for="d in dots" :key="`d${d.x},${d.y}`" :cx="u(d.x)" :cy="u(d.y)" r="2" class="dot" />
 
-        <!-- 双方光路（淡化，仅作局面背景） -->
+        <!-- 双方光路（默认淡化为背景；悬停对应的家时高亮） -->
         <template v-for="c in (['blue', 'red'] as Color[])" :key="`l${c}`">
-          <g v-if="lasers.get(c)?.segments.length">
-            <path :d="segPath(lasers.get(c)!.segments)" :stroke="COLORS[c]" class="laser-dim" />
+          <g v-if="lasers.get(c)?.segments.length" :data-laser="c">
+            <path
+              v-if="hoverHome === c"
+              :d="segPath(lasers.get(c)!.segments)"
+              :stroke="COLORS[c]"
+              class="laser-glow"
+            />
+            <path
+              :d="segPath(lasers.get(c)!.segments)"
+              :stroke="COLORS[c]"
+              :class="hoverHome === c ? 'laser-hot' : 'laser-dim'"
+            />
           </g>
         </template>
 
@@ -305,16 +315,29 @@ const backLabel = computed(() => (state.phase === 'lobby' ? '返回大厅' : '�
           class="no-events"
         />
 
-        <!-- 家 -->
+        <!-- 家（圆点为放大热区：悬停高亮该方光路） -->
         <template v-for="c in (['blue', 'red'] as Color[])" :key="`h${c}`">
-          <circle
-            v-if="review.homes[c]"
-            :cx="u(review.homes[c]!.x + 0.5)"
-            :cy="u(review.homes[c]!.y + 0.5)"
-            :r="S * 0.2"
-            :fill="COLORS[c]"
-            class="no-events"
-          />
+          <template v-if="review.homes[c]">
+            <circle
+              :cx="u(review.homes[c]!.x + 0.5)"
+              :cy="u(review.homes[c]!.y + 0.5)"
+              :r="S * 0.2"
+              :fill="COLORS[c]"
+              class="no-events"
+            />
+            <circle
+              :data-home-hit="c"
+              :cx="u(review.homes[c]!.x + 0.5)"
+              :cy="u(review.homes[c]!.y + 0.5)"
+              :r="S * 0.48"
+              fill="transparent"
+              class="home-hit"
+              @mouseenter="hoverHome = c"
+              @mouseleave="hoverHome = null"
+            >
+              <title>悬停查看{{ c === 'blue' ? '蓝' : '红' }}方光路</title>
+            </circle>
+          </template>
         </template>
 
         <!-- top-1 推荐（与实际所下不一致时；其余候选在侧栏列表） -->
@@ -334,18 +357,11 @@ const backLabel = computed(() => (state.phase === 'lobby' ? '返回大厅' : '�
           >{{ qSign(top1Overlay.q) }}{{ Math.abs(top1Overlay.q).toFixed(2) }}</text>
         </g>
 
-        <!-- 侧栏候选的棋盘预览 -->
-        <line
-          v-if="previewOverlay"
-          v-bind="previewOverlay.line"
-          stroke="#9a917e"
-          stroke-width="2.2"
-          stroke-opacity="0.8"
-          stroke-dasharray="2 2.5"
-          stroke-linecap="round"
-          class="no-events"
-          data-cand-preview
-        />
+        <!-- 侧栏候选的棋盘预览：流动虚线 + 发光加粗，与静态标识明显区分 -->
+        <g v-if="previewOverlay" class="no-events" data-cand-preview>
+          <line v-bind="previewOverlay.line" class="cand-preview-glow" />
+          <line v-bind="previewOverlay.line" class="cand-preview-line" />
+        </g>
 
         <!-- 第二意见分歧标记 -->
         <g v-if="secondDiff" class="second-diff" :transform="`translate(${secondDiff.at.x} ${secondDiff.at.y - 9})`">
@@ -853,6 +869,50 @@ const backLabel = computed(() => (state.phase === 'lobby' ? '返回大厅' : '�
   stroke-opacity: 0.22;
   stroke-linecap: round;
   pointer-events: none;
+}
+/* 悬停家时高亮该方光路（同 viewBox 坐标系，线宽随棋盘缩放） */
+.laser-hot {
+  fill: none;
+  stroke-width: 4;
+  stroke-opacity: 0.95;
+  stroke-linecap: round;
+  pointer-events: none;
+}
+.laser-glow {
+  fill: none;
+  stroke-width: 9;
+  stroke-opacity: 0.25;
+  stroke-linecap: round;
+  pointer-events: none;
+}
+.home-hit {
+  cursor: pointer;
+  pointer-events: auto;
+}
+/* 候选预览：流动虚线 + 发光，悬停列表哪条就突出哪条 */
+.cand-preview-line {
+  stroke: #6b5f47;
+  stroke-width: 3.2;
+  stroke-linecap: round;
+  stroke-dasharray: 5 3.5;
+  animation: cand-flow 0.8s linear infinite;
+}
+.cand-preview-glow {
+  stroke: #6b5f47;
+  stroke-width: 7;
+  stroke-opacity: 0.25;
+  stroke-linecap: round;
+}
+@keyframes cand-flow {
+  to {
+    stroke-dashoffset: -8.5;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cand-preview-line {
+    animation: none;
+    stroke-width: 4;
+  }
 }
 @media (max-width: 980px) {
   .review-page {
