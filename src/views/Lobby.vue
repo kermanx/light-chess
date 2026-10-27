@@ -4,10 +4,12 @@ import { MAX_PLAYERS, MIN_PLAYERS } from '../game'
 import { announceRoom, watchRooms, type PublicRoom } from '../directory'
 import { isValidCode, netClose, netCreate, netJoin, signaling, type Signaling } from '../net'
 import { SIZE_MAX, SIZE_MIN, startLocal, state } from '../store'
+import { ai, defaultModelId, modelList, refreshCkpts, startAiGame, type ModelInfo } from '../ai'
 import ClockSettings from '../components/ClockSettings.vue'
+import ModelCard from '../components/ModelCard.vue'
 
 const view = ref<'menu' | 'configure' | 'created' | 'join'>('menu')
-const preparing = ref<'local' | 'online'>('local')
+const preparing = ref<'local' | 'online' | 'ai-human' | 'aivai'>('local')
 const code = ref('')
 const joinCode = ref('')
 const error = ref('')
@@ -56,10 +58,56 @@ function local() {
   startLocal(count.value)
 }
 
-function prepare(mode: 'local' | 'online') {
+function prepare(mode: 'local' | 'online' | 'ai-human' | 'aivai') {
   preparing.value = mode
   error.value = ''
   view.value = 'configure'
+  if (mode === 'ai-human' || mode === 'aivai') void refreshCkpts()
+}
+
+// ---------- AI 对战配置 ----------
+const aiSize = ref(6)
+/** 两侧各自选中的模型 id（run/genN）；human 模式只用 blueSel 作为 AI 方 */
+const blueSel = ref('')
+const redSel = ref('')
+
+/** 模型按棋盘尺寸分组展示（大棋盘在前） */
+const modelsBySize = computed(() => {
+  const groups = new Map<number, ModelInfo[]>()
+  for (const m of modelList.list) {
+    const s = m.size ?? 6
+    if (!groups.has(s)) groups.set(s, [])
+    groups.get(s)!.push(m)
+  }
+  return [...groups.entries()].sort((a, b) => b[0] - a[0])
+})
+
+const modelOfId = (id: string) =>
+  modelList.list.find((m) => m.gens.some((g) => g.id === id))
+
+/** 选中一张卡：该侧换模型，棋盘尺寸跟随卡片的 size；另一侧若尺寸不符则重置为该尺寸推荐 */
+function pick(side: 'blue' | 'red', id: string) {
+  const m = modelOfId(id)
+  if (!m) return
+  if (side === 'blue') blueSel.value = id
+  else redSel.value = id
+  aiSize.value = m.size ?? 6
+  const other = side === 'blue' ? redSel : blueSel
+  if (modelOfId(other.value)?.size !== m.size) other.value = defaultModelId(aiSize.value)
+}
+
+/** 模型列表刷新后兜底默认选中推荐模型 */
+watch(modelsBySize, () => {
+  if (!modelOfId(blueSel.value)) blueSel.value = defaultModelId(aiSize.value)
+  if (!modelOfId(redSel.value) || modelOfId(redSel.value)?.size !== modelOfId(blueSel.value)?.size)
+    redSel.value = modelList.list.find((m) => m.size === aiSize.value && !m.recommended)?.id ??
+      defaultModelId(aiSize.value)
+})
+
+function startAi() {
+  ai.ckpts.blue = blueSel.value
+  ai.ckpts.red = redSel.value || blueSel.value
+  startAiGame(preparing.value === 'aivai' ? 'aivai' : 'human', aiSize.value)
 }
 
 // ---------- 公开房间：广播与监听的生命周期 ----------
@@ -198,6 +246,74 @@ onMounted(() => {
           <span class="card-title">加入房间</span>
           <span class="card-desc">输入房间号入座</span>
         </button>
+        <button class="card" @click="prepare('ai-human')">
+          <span class="card-title">人机对战</span>
+          <span class="card-desc">挑战训练出的 AI</span>
+        </button>
+        <button class="card" @click="prepare('aivai')">
+          <span class="card-title">AI 对战</span>
+          <span class="card-desc">两个模型互下，观战对比</span>
+        </button>
+      </div>
+    </div>
+
+    <div v-else-if="view === 'configure' && (preparing === 'ai-human' || preparing === 'aivai')" class="panel">
+      <div class="panel-head">
+        <h2 class="panel-title">{{ preparing === 'aivai' ? 'AI 对战' : '人机对战' }}</h2>
+        <p class="panel-label">推理服务运行在远端 CPU 集群</p>
+      </div>
+      <fieldset class="prepare-settings">
+        <label class="laser-opt">
+          服务地址
+          <input class="size-input" style="width: 220px; text-align: left" v-model="ai.baseUrl" @change="refreshCkpts" />
+          <button class="btn-plain" style="padding: 2px 10px; font-size: 13px" @click="refreshCkpts">刷新模型</button>
+        </label>
+        <label v-if="preparing === 'ai-human'" class="laser-opt">
+          你执
+          <select class="sig-select" v-model="ai.humanColor">
+            <option value="blue">蓝（先手）</option>
+            <option value="red">红（后手）</option>
+          </select>
+        </label>
+        <div class="model-section">
+          <p class="model-section-title">
+            {{ preparing === 'aivai' ? '蓝方模型' : 'AI 模型' }}（点卡片即选定棋盘尺寸，当前 {{ aiSize }}×{{ aiSize }}）
+          </p>
+          <div v-for="[size, models] in modelsBySize" :key="size" class="model-group">
+            <p class="model-group-title">{{ size }}×{{ size }}</p>
+            <div class="model-grid">
+              <ModelCard
+                v-for="m in models"
+                :key="m.run"
+                :model="m"
+                :selected-id="blueSel"
+                @select="pick('blue', $event)"
+              />
+            </div>
+          </div>
+        </div>
+        <div v-if="preparing === 'aivai'" class="model-section">
+          <p class="model-section-title">红方模型（需与蓝方同尺寸）</p>
+          <div class="model-grid">
+            <ModelCard
+              v-for="m in modelsBySize.find(([s]) => s === aiSize)?.[1] ?? []"
+              :key="m.run"
+              :model="m"
+              :selected-id="redSel"
+              @select="pick('red', $event)"
+            />
+          </div>
+        </div>
+        <label class="laser-opt">
+          思考强度（MCTS sims）
+          <input class="size-input" type="number" :min="10" :max="2000" v-model.number="ai.sims" />
+        </label>
+        <p v-if="modelList.error" class="error" style="margin: 0">连不上推理服务：{{ modelList.error }}</p>
+        <p v-else-if="!modelList.loaded" class="panel-label">正在获取模型列表…</p>
+      </fieldset>
+      <div class="row">
+        <button class="btn-primary" :disabled="!blueSel" @click="startAi">开始对局</button>
+        <button class="btn-plain" @click="cancel">返回</button>
       </div>
     </div>
 
@@ -428,6 +544,34 @@ onMounted(() => {
 }
 .sig-select:focus {
   border-color: #2f6fed;
+}
+.model-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.model-section-title {
+  margin: 0;
+  font-size: 13px;
+  color: #8a7f68;
+}
+.model-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.model-group-title {
+  margin: 0;
+  font-size: 12px;
+  letter-spacing: 2px;
+  color: #b0a488;
+  border-bottom: 1px dashed #d8cbab;
+  padding-bottom: 3px;
+}
+.model-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
 }
 .sig-hint {
   font-size: 12px;

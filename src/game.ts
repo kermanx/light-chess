@@ -263,3 +263,82 @@ export function simulate(board: BoardState, color: Color): SimResult {
 
   return { hit, hits, segments: [...segSet.values()], hitPath: hitPaths[hits[0]] ?? null, hitPaths }
 }
+
+/** 有向光路段：p → q（光从 p 传播到 q） */
+export interface DirSegment {
+  p: Pt
+  q: Pt
+}
+
+/**
+ * simulate 的渲染辅助版：返回【有向、按传播顺序】的光路段（不去重成无向段），
+ * 供前端画传播方向箭头。折返段（格中心→边中点→格中心）会产出同格的两条反向段。
+ * 遍历逻辑与 simulate 完全一致，只改记录方式；不影响任何规则语义。
+ */
+export function simulateDirected(board: BoardState, color: Color): DirSegment[] {
+  const home = board.homes[color]
+  const targets = new Map<string, Color>()
+  for (const [c, h] of Object.entries(board.homes)) {
+    if (c !== color && h) targets.set(`${h.x},${h.y}`, c as Color)
+  }
+  if (!home || targets.size === 0) return []
+  const size = board.size
+
+  const out: DirSegment[] = []
+  const seen = new Set<string>()
+  const addSeg = (p: Pt, q: Pt) => {
+    const key = `${p.x},${p.y}>${q.x},${q.y}`
+    if (seen.has(key)) return
+    seen.add(key)
+    out.push({ p, q })
+  }
+
+  const nodes: Node[] = ([0, 1, 2, 3] as Dir[]).map((dir) => ({
+    x: home.x, y: home.y, dir, pts: [], parent: -1,
+  }))
+  const visited = new Set<string>()
+
+  for (let ni = 0; ni < nodes.length; ni++) {
+    const node = nodes[ni]
+    const key = stateKey(node.x, node.y, node.dir)
+    if (visited.has(key)) continue
+    visited.add(key)
+    if (targets.has(`${node.x},${node.y}`)) continue // 被打中的家吸收激光
+
+    const diag = board.diags.get(`${node.x},${node.y}`)
+    let dirs: Dir[]
+    if (diag) {
+      const r = REFL[diag.ori][node.dir]
+      dirs = diag.color === color ? [node.dir, r] : [r]
+    } else {
+      dirs = [node.dir]
+    }
+
+    for (const d of dirs) {
+      const eid = edgeOf(node.x, node.y, d)
+      const m = board.edges.get(eid)
+      const boundaryMirror = board.boundaryReflects && !inside(node.x + DX[d], node.y + DY[d], size)
+      const outs: Dir[] = boundaryMirror ? [opp(d)] : m ? (m.color === color ? [d, opp(d)] : [opp(d)]) : [d]
+      for (const d2 of outs) {
+        const c = center(node.x, node.y)
+        if ((boundaryMirror || m) && d2 === opp(d)) {
+          // 在边上反射回本格：中心→边中点→中心，两条反向有向段
+          const mid = edgeMid(eid)
+          addSeg(c, mid)
+          addSeg(mid, c)
+          nodes.push({ x: node.x, y: node.y, dir: d2, pts: [mid, c], parent: ni })
+        } else {
+          const nx = node.x + DX[d2]
+          const ny = node.y + DY[d2]
+          if (!inside(nx, ny, size)) {
+            addSeg(c, edgeMid(eid))
+          } else {
+            addSeg(c, center(nx, ny))
+            nodes.push({ x: nx, y: ny, dir: d2, pts: [center(nx, ny)], parent: ni })
+          }
+        }
+      }
+    }
+  }
+  return out
+}

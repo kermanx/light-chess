@@ -10,8 +10,10 @@ import {
   edgeOf,
   PALETTE,
   simulate,
+  simulateDirected,
   type Color,
   type Dir,
+  type DirSegment,
   type Ori,
   type Pt,
 } from '../game'
@@ -33,6 +35,8 @@ import {
   wouldEnclose,
   wouldEncloseDiag,
 } from '../store'
+import { ai, humanTurn, retryAi, togglePause } from '../ai'
+import { openReview } from '../review'
 
 const S = 28 // 格距（px）
 const PAD = 36
@@ -211,7 +215,7 @@ function exitMove(ev: MouseEvent) {
 }
 
 function exitClick(ev: MouseEvent) {
-  if (!canAct.value) return
+  if (!canAct.value || !humanTurn()) return
   const h = pendingHome.value
   const dir = dirFromEvent(ev)
   if (!h || dir === null || !isValidHomeSetup({ ...h, dir }, setupColor.value)) return
@@ -263,7 +267,7 @@ const exitPreview = computed(() =>
 
 // ---------- 交互 ----------
 function cellClick(x: number, y: number, backslash: boolean) {
-  if (!canAct.value) {
+  if (!canAct.value || !humanTurn()) {
     remindWait()
     return
   }
@@ -284,7 +288,7 @@ function cellClick(x: number, y: number, backslash: boolean) {
 }
 
 function edgeClick(id: string) {
-  if (!canAct.value) {
+  if (!canAct.value || !humanTurn()) {
     remindWait()
     return
   }
@@ -367,7 +371,8 @@ const nudge = ref(0)
 
 /** 对方回合点击棋盘：状态栏描边脉冲提醒「还没轮到你」 */
 function remindWait() {
-  if (state.phase !== 'play' || state.mode !== 'online' || state.peerLeft) return
+  if (state.phase !== 'play' || state.peerLeft) return
+  if (state.mode !== 'online' && !ai.mode) return
   nudge.value++
 }
 
@@ -398,6 +403,46 @@ const hoverHomeColor = computed<Color | null>(() => {
   return null
 })
 const showPath = computed(() => replayVisible.value ? null : hoverHomeColor.value)
+/** AI 对战：全程展示双方光路（含结束后），便于观战 */
+const showAllLasers = computed(() => ai.mode === 'aivai')
+
+/** 该颜色当前是否展示光路；返回 null 表示不展示或已出局（出局者不再模拟） */
+const laserSim = (c: Color) =>
+  showPath.value === c || showAllLasers.value ? sims.value.get(c) ?? null : null
+
+/** 有向光路段（传播方向箭头用；与 sims 同一批存活玩家） */
+const dsims = computed(() => {
+  const m = new Map<Color, DirSegment[]>()
+  for (const c of state.players) if (!state.dead.includes(c)) m.set(c, simulateDirected(board, c))
+  return m
+})
+
+/** 一段有向光路的箭头三角形（svg 像素坐标）；垂直微偏，让同格反向的两支箭不叠在一起 */
+function arrowFor(seg: DirSegment) {
+  const { p, q } = seg
+  const dx = q.x - p.x
+  const dy = q.y - p.y
+  const len = Math.hypot(dx, dy) || 1
+  const ux = dx / len
+  const uy = dy / len
+  const nx = -uy
+  const ny = ux
+  const L = 0.16
+  const W = 0.1
+  const OFF = 0.07
+  const cx = p.x + dx * 0.62 + nx * OFF
+  const cy = p.y + dy * 0.62 + ny * OFF
+  const tip = { x: cx + ux * L, y: cy + uy * L }
+  const b1 = { x: cx - ux * L * 0.4 + nx * W, y: cy - uy * L * 0.4 + ny * W }
+  const b2 = { x: cx - ux * L * 0.4 - nx * W, y: cy - uy * L * 0.4 - ny * W }
+  return `${u(tip.x)},${u(tip.y)} ${u(b1.x)},${u(b1.y)} ${u(b2.x)},${u(b2.y)}`
+}
+
+const dirArrowMap = computed(() => {
+  const m = new Map<Color, string[]>()
+  for (const [c, segs] of dsims.value) m.set(c, segs.map(arrowFor))
+  return m
+})
 
 function toggleLaser(e: Event) {
   dispatch({ kind: 'laser-setting', color: hostColor.value, allow: (e.target as HTMLInputElement).checked })
@@ -463,6 +508,7 @@ const ghostHome = computed(() => {
   const c = hoverCell.value
   if (
     !canAct.value ||
+    !humanTurn() ||
     state.phase !== 'setup' ||
     pendingHome.value ||
     !c ||
@@ -485,6 +531,9 @@ const statusColor = computed<Color | null>(() => {
 const statusText = computed(() => {
   if (replayPlaying.value) return '致胜光路…'
   if (state.peerLeft) return '有玩家掉线，等待重连…'
+  if (ai.mode && ai.error) return `AI 服务出错：${ai.error}`
+  if (ai.mode && ai.thinking) return `${name(statusColor.value ?? state.current)} AI 思考中…`
+  if (ai.mode === 'aivai' && ai.paused && state.phase !== 'over') return '已暂停（点击侧栏「继续」恢复）'
   if (ghostEdgeBad.value || ghostCellBad.value) return '此处放镜会把某对玩家的家隔开，不能放'
   if (state.phase === 'over') return `${name(state.winner!)}获胜！`
   if (state.phase === 'setup') {
@@ -602,27 +651,40 @@ const statusText = computed(() => {
           </template>
         </g>
 
-        <!-- 光路（悬停对应颜色的家时显示） -->
+        <!-- 光路（悬停对应颜色的家时显示；AI 对战全程显示双方） -->
         <template v-for="c in state.players" :key="`l${c}`">
-          <g v-if="showPath === c">
+          <g v-if="laserSim(c)" :style="{ color: COLORS[c] }">
             <path
-              v-if="sims.get(c)!.segments.length"
-              :d="segPath(sims.get(c)!.segments)"
+              v-if="laserSim(c)!.segments.length"
+              :d="segPath(laserSim(c)!.segments)"
               :stroke="COLORS[c]"
               class="laser-glow"
             />
             <path
-              v-if="sims.get(c)!.segments.length"
-              :d="segPath(sims.get(c)!.segments)"
+              v-if="laserSim(c)!.segments.length"
+              :d="segPath(laserSim(c)!.segments)"
               :stroke="COLORS[c]"
               class="laser-core"
             />
-            <polyline
-              v-if="sims.get(c)!.hitPath"
-              :points="linePath(sims.get(c)!.hitPath!)"
-              :stroke="COLORS[c]"
-              class="laser-hit"
+            <!-- 传播方向箭头（同格折返的两条反向段会画出一来一回两支箭） -->
+            <polygon
+              v-for="(a, i) in dirArrowMap.get(c) ?? []"
+              :key="`a${c}-${i}`"
+              :points="a"
+              :fill="COLORS[c]"
+              class="laser-arrow"
             />
+            <template v-if="laserSim(c)!.hitPath">
+              <polyline
+                :points="linePath(laserSim(c)!.hitPath!)"
+                :stroke="COLORS[c]"
+                class="laser-hit"
+              />
+              <polyline
+                :points="linePath(laserSim(c)!.hitPath!)"
+                class="laser-hit-core"
+              />
+            </template>
           </g>
         </template>
 
@@ -792,6 +854,12 @@ const statusText = computed(() => {
         <span v-if="state.mode === 'online'" class="room">
           房间 {{ state.roomCode }} · 你执{{ name(state.myColor!) }}
         </span>
+        <template v-if="ai.mode">
+          <span v-for="c in state.players" :key="`ai-${c}`" class="room" :style="{ color: COLORS[c] }">
+            {{ name(c) }}：{{ ai.mode === 'human' && c === ai.humanColor ? '你' : (ai.ckpts[c] || 'AI') }}
+          </span>
+          <span class="room">MCTS sims：{{ ai.sims }}</span>
+        </template>
         <span
           v-for="c in state.players.filter((c) => state.dead.includes(c))"
           :key="`dead-${c}`"
@@ -824,7 +892,12 @@ const statusText = computed(() => {
       </span>
       <span v-else class="laser-tag">鼠标悬停在「家」上可查看光路</span>
       <div v-if="undoAvailable || isHostSide" class="btn-row">
-        <button v-if="undoAvailable" class="btn-plain" :disabled="!canUndoNow" @click="undo">撤回一步</button>
+        <button v-if="ai.mode === 'aivai'" class="btn-plain" @click="togglePause">
+          {{ ai.paused ? '继续' : '暂停' }}
+        </button>
+        <button v-if="ai.mode && ai.error" class="btn-plain" @click="retryAi">重试 AI</button>
+        <button v-if="undoAvailable && !ai.mode" class="btn-plain" :disabled="!canUndoNow" @click="undo">撤回一步</button>
+        <button v-if="state.phase === 'over' && state.mode === 'local'" class="btn-plain" @click="openReview()">复盘分析</button>
         <button v-if="isHostSide" class="btn-plain" @click="restart">重新开始</button>
       </div>
     </div>
@@ -1036,24 +1109,37 @@ const statusText = computed(() => {
 }
 .laser-glow {
   fill: none;
-  stroke-width: 8;
-  stroke-opacity: 0.22;
+  stroke-width: 11;
+  stroke-opacity: 0.3;
   stroke-linecap: round;
   pointer-events: none;
 }
 .laser-core {
   fill: none;
-  stroke-width: 2.6;
+  stroke-width: 3.2;
   stroke-opacity: 0.95;
   stroke-linecap: round;
   pointer-events: none;
 }
+.laser-arrow {
+  pointer-events: none;
+  animation: pulse 1.6s ease-in-out infinite;
+}
 .laser-hit {
   fill: none;
-  stroke-width: 3.5;
+  stroke-width: 4.5;
   stroke-linejoin: round;
   stroke-linecap: round;
-  filter: drop-shadow(0 0 5px currentColor);
+  filter: drop-shadow(0 0 6px currentColor);
+  pointer-events: none;
+}
+.laser-hit-core {
+  fill: none;
+  stroke: #fffdf0;
+  stroke-width: 1.6;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  stroke-opacity: 0.9;
   pointer-events: none;
 }
 .ctl-note {

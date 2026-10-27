@@ -25,6 +25,11 @@ export interface VictoryReplay {
   targets: { color: Color; path: Pt[] }[]
 }
 
+/** 一手落子记录（复盘提交给 /api/analyze 的 moves 元素；家的自动镜不算） */
+export type MoveRecord =
+  | { kind: 'edge'; id: string; color: Color }
+  | { kind: 'diag'; x: number; y: number; ori: Ori; color: Color }
+
 /** 上一步放置的镜子（家的自动镜不算），用于 UI 加粗高亮与撤回权限判定 */
 export type LastMove =
   | { kind: 'edge'; id: string; color: Color }
@@ -91,6 +96,8 @@ export const state = reactive({
   undoFloor: 0,
   /** 上一步放置的镜子（用于加粗高亮；家的自动镜不算） */
   lastMove: null as LastMove,
+  /** 本局全部落子顺序记录（play 阶段；撤回弹出末尾） */
+  moves: [] as MoveRecord[],
   /** 本局会话 id（对局 URL /s/<id> 与存档对应，浏览器后退/前进恢复用） */
   sessionId: '',
   /** 棋盘格数（联机由房主调整） */
@@ -236,6 +243,7 @@ function resetBoard() {
   state.victoryReplay = null
   state.dead = []
   state.lastMove = null
+  state.moves = []
   state.timedOut = []
   state.clock = freshClock(state.clockSettings, state.clock.revision + 1)
   clearHistory()
@@ -282,6 +290,7 @@ export function toLobby() {
   state.victoryReplay = null
   state.dead = []
   state.lastMove = null
+  state.moves = []
   state.sessionId = ''
   clearHistory()
   state.laserAllowed = false
@@ -475,6 +484,7 @@ function apply(a: Action, at = Date.now()) {
     // 恢复以动作携带的帧为准，刷新后栈深度不一致也不会分叉
     if (moveHistory.length) moveHistory.pop()
     undoDepth.value = moveHistory.length
+    state.moves.pop()
     const f = a.frame
     state.edges.clear()
     for (const [k, v] of f.edges) state.edges.set(k, v)
@@ -519,9 +529,11 @@ function apply(a: Action, at = Date.now()) {
   if (a.kind === 'edge') {
     state.edges.set(a.id, { color: a.color })
     state.lastMove = { kind: 'edge', id: a.id, color: a.color }
+    state.moves.push({ kind: 'edge', id: a.id, color: a.color })
   } else {
     state.diags.set(`${a.x},${a.y}`, { color: a.color, ori: a.ori })
     state.lastMove = { kind: 'diag', key: `${a.x},${a.y}`, color: a.color }
+    state.moves.push({ kind: 'diag', x: a.x, y: a.y, ori: a.ori, color: a.color })
   }
   if (state.phase === 'play') {
     state.current = nextAlive(a.color)
@@ -603,6 +615,8 @@ export interface Snapshot {
   timedOut?: Color[]
   /** 上一步放置的镜子；缺省视为无 */
   lastMove?: LastMove
+  /** 落子顺序记录（复盘用）；缺省视为无 */
+  moves?: MoveRecord[]
   /** 对局会话 id（/s/<id>）；无此字段的存档视为旧格式，加载时直接忽略 */
   sessionId?: string
   size: number
@@ -630,6 +644,7 @@ export function serialize(): Snapshot {
     clock: serializeClock(),
     timedOut: [...state.timedOut],
     lastMove: state.lastMove,
+    moves: [...state.moves],
     sessionId: state.sessionId,
     size: state.size,
   }
@@ -671,6 +686,7 @@ export function applySnapshot(s: Snapshot, preserveIdentity = false) {
   // 联机恢复先暂停在最近保存的剩余时间，待房主确认所有人重连后再启动。
   if (!preserveIdentity && s.mode === 'online') state.clock.runningSince = null
   state.lastMove = s.lastMove ?? null
+  state.moves = s.moves ? [...s.moves] : []
   clearHistory() // 历史栈不随快照走，恢复后从空栈重新累计
   state.size = s.size
 }
