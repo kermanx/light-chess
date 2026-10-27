@@ -77,6 +77,8 @@ export const review = reactive({
   progress: { done: 0, total: 0 },
   loading: false,
   error: '',
+  /** 复盘视角：我坐在蓝方/红方，或旁观（中性展示） */
+  perspective: 'spec' as Color | 'spec',
   /** 当前展示的步数（0 = 初始局面） */
   cursor: 0,
   playing: false,
@@ -169,6 +171,8 @@ export function openReview() {
   )
   review.active = true
   review.playing = true
+  // 视角默认按对局来源推断：人机局站人所在方，AI vs AI 与人人本地局旁观
+  review.perspective = ai.mode === 'human' ? ai.humanColor : 'spec'
   if (!modelList.loaded && !modelList.error) void refreshCkpts()
   const sized = modelList.list.filter((m) => m.size === review.size)
   const fit = (id: string) => sized.some((m) => m.id === id || m.gens.some((g) => g.id === id))

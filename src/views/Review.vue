@@ -250,6 +250,10 @@ function jump(ply: number) {
   setCursor(ply + 1)
 }
 
+/** 该 ply 是不是「我方」行棋（旁观视角下无我方） */
+const isMine = (p: PlyLine) =>
+  review.perspective !== 'spec' && moverColor(p.mover) === review.perspective
+
 // ---------- 模型选择 ----------
 const sizedModels = computed(() => modelList.list.filter((m) => m.size === review.size))
 const coachOptions = computed(() =>
@@ -399,6 +403,22 @@ const backLabel = computed(() => (state.phase === 'lobby' ? '返回大厅' : '�
         />
         <span class="ply-cnt">{{ review.cursor }}/{{ review.meta?.total_plies ?? review.moves.length }}</span>
         <button class="btn-plain skip-btn" aria-label="跳到终局" title="跳到终局" @click="jump(review.plies.length - 1)">⏭</button>
+        <!-- 视角选择：我坐在哪一方 -->
+        <div class="seg" role="radiogroup" aria-label="复盘视角">
+          <button
+            v-for="opt in (['blue', 'red', 'spec'] as const)"
+            :key="opt"
+            class="seg-btn"
+            :class="{ on: review.perspective === opt }"
+            role="radio"
+            :aria-checked="review.perspective === opt"
+            @click="review.perspective = opt"
+          >
+            <i v-if="opt !== 'spec'" class="seg-dot" :style="{ background: COLORS[opt] }"></i>
+            <i v-else class="seg-eye">👁</i>
+            {{ opt === 'spec' ? '旁观' : opt === 'blue' ? '蓝方' : '红方' }}
+          </button>
+        </div>
       </div>
 
       <!-- 当前手：实际着法 + 估值是主角 -->
@@ -411,6 +431,11 @@ const backLabel = computed(() => (state.phase === 'lobby' ? '返回大厅' : '�
           </span>
         </div>
         <div class="cur-tags">
+          <span
+            v-if="review.perspective !== 'spec'"
+            class="tag"
+            :class="isMine(curPly) ? 'tag-mine' : 'tag-opp'"
+          >{{ isMine(curPly) ? '我方' : '对方' }}</span>
           <span v-if="actualDeviates" class="tag tag-dev" title="实际所下与教练 top-1 推荐不一致（棋盘上该步已标灰，虚线为推荐）">≠ 推荐</span>
           <span v-if="curBlunder" class="tag tag-blunder" :title="`这一手估值跌 ${curBlunder.drop.toFixed(2)}`">失误 −{{ curBlunder.drop.toFixed(2) }}</span>
           <span v-if="curPly.dead" class="tag" title="僵持步：双方都无法打开局面">僵持</span>
@@ -487,6 +512,8 @@ const backLabel = computed(() => (state.phase === 'lobby' ? '返回大厅' : '�
                 active: review.cursor === it.ply + 1,
                 blunder: blunderPlies.has(it.ply),
                 dead: review.plies[it.ply].dead,
+                'mine-b': isMine(review.plies[it.ply]) && review.perspective === 'blue',
+                'mine-r': isMine(review.plies[it.ply]) && review.perspective === 'red',
               }"
               :title="`第 ${it.ply + 1} 手`"
               @click="jump(it.ply)"
@@ -612,6 +639,71 @@ const backLabel = computed(() => (state.phase === 'lobby' ? '返回大厅' : '�
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
+}
+/* 视角分段控件 */
+.seg {
+  display: flex;
+  width: 100%;
+  margin-top: 2px;
+  border: 1.5px solid #b0a488;
+  border-radius: 9px;
+  overflow: hidden;
+}
+.seg-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 4px 0;
+  font-size: 12px;
+  font-family: inherit;
+  background: #fffdf6;
+  border: none;
+  color: #8a7f68;
+  cursor: pointer;
+}
+.seg-btn + .seg-btn {
+  border-left: 1.5px solid #e3d7ba;
+}
+.seg-btn.on {
+  background: #efe7d2;
+  color: #35301f;
+  font-weight: 700;
+}
+.seg-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+.seg-eye {
+  font-style: normal;
+  font-size: 11px;
+}
+/* 我方行棋的步进按钮：对应方颜色边+底色 */
+.ply-btn.mine-b {
+  border-color: #2f6fed;
+  background: #e3ecfd;
+  color: #1e4fb8;
+}
+.ply-btn.mine-r {
+  border-color: #e84a3c;
+  background: #fbe4e1;
+  color: #b91c1c;
+}
+.ply-btn.mine-b.blunder,
+.ply-btn.mine-r.blunder {
+  box-shadow: 0 0 0 2px rgba(232, 74, 60, 0.45);
+  font-weight: 700;
+}
+.tag-mine {
+  background: #e3ecfd;
+  color: #1e4fb8;
+}
+.tag-opp {
+  background: #efe7d2;
+  color: #8a7f68;
 }
 .play-btn {
   width: 34px;

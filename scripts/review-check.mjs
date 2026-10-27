@@ -103,6 +103,21 @@ try {
   cur = await page.evaluate(() => window.__review.cursor)
   assert(cur > 2, '播放继续推进')
 
+  // 视角切换：人人本地局默认旁观；切蓝方后蓝方行棋的 ply 按钮突出，切回旁观恢复中性
+  assert.equal(await page.evaluate(() => window.__review.perspective), 'spec', '人人局默认旁观')
+  const mineCount = async cls =>
+    page.locator(`.ply-btn.${cls}`).count()
+  await page.getByRole('radio', { name: '蓝方' }).click()
+  assert.equal(await mineCount('mine-b'), await page.evaluate(() => window.__review.plies.filter(p => p.mover === 0).length), '蓝方视角突出蓝方 ply')
+  assert.equal(await mineCount('mine-r'), 0)
+  assert(await page.locator('.cur-ply .tag-mine, .cur-ply .tag-opp').count() === 1, '当前手标注我方/对方')
+  await page.getByRole('radio', { name: '红方' }).click()
+  assert.equal(await mineCount('mine-r'), await page.evaluate(() => window.__review.plies.filter(p => p.mover === 1).length), '红方视角突出红方 ply')
+  assert.equal(await mineCount('mine-b'), 0)
+  await page.getByRole('radio', { name: '旁观' }).click()
+  assert.equal(await mineCount('mine-b'), 0, '旁观恢复中性')
+  assert.equal(await mineCount('mine-r'), 0)
+
   // 返回对局
   await page.getByRole('button', { name: '返回对局' }).click()
   assert.equal(await page.locator('[data-review-board]').count(), 0)
