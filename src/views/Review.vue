@@ -16,10 +16,12 @@ import {
 import {
   blueValue,
   blueSecond,
+  chooseReviewSource,
   closeReview,
   moverColor,
   moveText,
   review,
+  reviewSourceOptions,
   runAnalysis,
   sameMove,
   setCursor,
@@ -27,6 +29,7 @@ import {
   togglePlay,
   type PlyLine,
   type ReviewMove,
+  type ReviewSourceKind,
 } from '../review'
 import { modelList, refreshCkpts } from '../review'
 import { state } from '../store'
@@ -582,21 +585,35 @@ const backLabel = computed(() => (state.phase === 'lobby' ? '返回大厅' : '�
       <details class="note settings">
         <summary>分析设置</summary>
         <label class="row-ctl">
-          教练
-          <select v-model="review.coach" class="sel">
-            <option v-for="o in coachOptions" :key="o.id" :value="o.id">{{ o.label }}</option>
+          数据源
+          <select
+            :value="review.source"
+            class="sel"
+            @change="chooseReviewSource((($event.target as HTMLSelectElement).value) as ReviewSourceKind)"
+          >
+            <option v-for="o in reviewSourceOptions()" :key="o.kind" :value="o.kind">{{ o.label }}</option>
           </select>
         </label>
-        <label class="row-ctl">
-          第二意见
-          <select v-model="review.second" class="sel">
-            <option value="">不使用</option>
-            <option v-for="o in coachOptions" :key="o.id" :value="o.id">{{ o.label }}</option>
-          </select>
-        </label>
-        <label class="row-ctl">
+        <template v-if="review.source === 'remote'">
+          <label class="row-ctl">
+            教练
+            <select v-model="review.coach" class="sel">
+              <option v-for="o in coachOptions" :key="o.id" :value="o.id">{{ o.label }}</option>
+            </select>
+          </label>
+          <label class="row-ctl">
+            第二意见
+            <select v-model="review.second" class="sel">
+              <option value="">不使用</option>
+              <option v-for="o in coachOptions" :key="o.id" :value="o.id">{{ o.label }}</option>
+            </select>
+          </label>
+        </template>
+        <label v-if="review.source !== 'wasm'" class="row-ctl">
           sims
           <input type="number" min="50" max="200" step="50" v-model.number="review.sims" class="sel sims-in" />
+        </label>
+        <label class="row-ctl">
           <button class="btn-plain" :disabled="review.loading" @click="runAnalysis()">
             {{ review.loading ? '分析中…' : '重新分析' }}
           </button>

@@ -2,6 +2,10 @@ import assert from 'node:assert/strict'
 import { chromium } from 'playwright'
 import { createServer } from 'vite'
 
+// 远程复盘路径回归：云端数据源由构建期 VITE_REVIEW_SERVICE_URL 启用，
+// 本脚本默认指向开发服务（可被同名环境变量覆盖）。
+process.env.VITE_REVIEW_SERVICE_URL ??= 'http://10.176.52.133:8931'
+
 const vite = await createServer({
   cacheDir: 'node_modules/.vite-review-check',
   server: { host: '127.0.0.1', port: 0, hmr: false },
