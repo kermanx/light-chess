@@ -1,4 +1,5 @@
 use crate::board::{Board, Move, REFLECT};
+use crate::forcing::{ForcingSearch, ForcingStats};
 use crate::optics::{
     additions, along, connection_distances, connections, defenses, settle_next, source_distance,
     trace, Trace, INF,
@@ -165,6 +166,34 @@ mod tests {
             .iter()
             .any(|r| matches!(r.action, Move::Diag(c, _) if c / 16 == 13)));
     }
+
+    #[test]
+    fn root_keeps_both_safe_orientations_at_each_selected_location() {
+        let fixture: serde_json::Value =
+            serde_json::from_str(include_str!("../fixtures/attack-initiative.json")).unwrap();
+        let mut board = serde_json::from_value::<Request>(fixture["request"].clone())
+            .unwrap().into_board().unwrap();
+        for _ in 0..4 {
+            let mut search = Search::new(1, 30_000.0, 1_000_000);
+            let candidates = search.moves(&mut board, 12, true).unwrap();
+            let mut pairs = 0;
+            for r in &candidates.choices {
+                if let Move::Diag(cell, ori) = r.action {
+                    let other = Move::Diag(cell, 1 - ori);
+                    board.put(other, board.current);
+                    let safe = !board.encloses(board.current) && trace(&board, 0, false).hits & 2 == 0;
+                    board.remove(other);
+                    if safe {
+                        assert!(candidates.choices.iter().any(|r| r.action == other));
+                        pairs += 1;
+                    }
+                }
+            }
+            assert!(pairs >= 2);
+            assert!(candidates.choices.len() <= 24);
+            board = rotate(&board);
+        }
+    }
 }
 #[derive(Clone, Copy)]
 struct Entry {
@@ -213,6 +242,7 @@ pub struct Search {
     pub minimum_depth: u8,
     iterations: Vec<SearchIteration>,
     partial_iteration: Option<SearchIteration>,
+    forcing: Option<ForcingStats>,
 }
 
 impl Search {
@@ -248,6 +278,7 @@ impl Search {
             minimum_depth: 0,
             iterations: Vec::new(),
             partial_iteration: None,
+            forcing: None,
         }
     }
     fn check(&self) -> Result<(), Interrupted> {
@@ -656,6 +687,7 @@ impl Search {
         let mut ranked = Vec::new();
         let mut complete = true;
         let mut per_cell = HashMap::new();
+        let mut root_locations = HashSet::new();
         let mut regions = [0usize; 9];
         'candidates: for candidate in raw {
             let mut pair = vec![candidate.action];
@@ -685,7 +717,7 @@ impl Search {
                     r.score += priorities[&action];
                     let cell = planning::cell_of(board, action);
                     let signature = (cell, r.own_signature);
-                    if !threatened && matches!(action, Move::Diag(..)) {
+                    if !root && !threatened && matches!(action, Move::Diag(..)) {
                         if let Some(&i) = per_cell.get(&signature) {
                             let old: &mut Ranked = &mut ranked[i];
                             if r.score > old.score {
@@ -695,20 +727,35 @@ impl Search {
                         }
                     }
                     let group = planning::region(board, board.current, action);
+                    let location = match action {
+                        Move::Diag(cell, _) => Move::Diag(cell, 0),
+                        other => other,
+                    };
+                    // At the root, budget locations rather than orientations.
+                    // Equal own beams say nothing about the opponent's future
+                    // reflections. Search both orientations without crowding
+                    // out the other spatial routes from the shortlist.
+                    let paired = root && root_locations.contains(&location);
                     if !threatened
+                        && !paired
                         && regions[group] >= width.div_ceil(3).max(2)
                         && ranked.len() >= width / 2
                     {
                         continue;
                     }
-                    if !threatened && matches!(action, Move::Diag(..)) {
+                    if !root && !threatened && matches!(action, Move::Diag(..)) {
                         per_cell.insert(signature, ranked.len());
                     }
-                    regions[group] += 1;
+                    if !paired {
+                        regions[group] += 1;
+                    }
+                    if root {
+                        root_locations.insert(location);
+                    }
                     ranked.push(r);
                 }
             }
-            if ranked.len() >= width {
+            if (if root { root_locations.len() } else { ranked.len() }) >= width {
                 complete = visited.len() == raw_len;
                 break;
             }
@@ -1164,6 +1211,31 @@ impl Search {
         });
         self.candidates = moves.len();
         if moves.is_empty() {
+            if generated.threatened && generated.complete && board.alive.count_ones() == 2 {
+                // The witness-path set is exhaustive for saving moves, not for
+                // all legal moves. If every path intersection is illegal, the
+                // old fallback stayed empty and reported an engine error.
+                // Play a legal losing move so normal turn settlement ends play.
+                if self.fallback.is_none() {
+                    let actions: Vec<_> = board.all_moves().collect();
+                    for action in actions {
+                        board.put(action, board.current);
+                        let legal = !board.encloses(board.current);
+                        board.remove(action);
+                        if legal {
+                            self.fallback = Some(Ranked { action, score: -WIN, own_signature: 0, attack: false });
+                            break;
+                        }
+                    }
+                }
+                if let Some(fallback) = &mut self.fallback {
+                    fallback.score = -WIN;
+                    self.stop_reason = "no-defense";
+                    self.completed_score = -WIN;
+                    self.reason = "已穷尽当前攻击的合法防守，无法挡住；按正常回合结算胜负。".into();
+                    return Some(fallback.action);
+                }
+            }
             self.reason = "已检查所有即时防守，当前没有能守住的合法落子。".into();
             return self.fallback.map(|r| r.action);
         }
@@ -1180,6 +1252,31 @@ impl Search {
             self.stop_reason = "single-defense";
             self.explain(selected, true);
             return Some(selected);
+        }
+        if board.alive.count_ones() == 2 && max_depth >= 3 {
+            // A small positive-only tactical pass can prove a forcing line
+            // without searching every quiet development move. Its AND nodes
+            // never prune legal defenses. Reserve most time for normal play.
+            let remaining = (self.deadline - now_ms()).max(0.0);
+            let mut forcing = ForcingSearch::new(
+                board,
+                (remaining * 0.2).min(4000.0),
+                (self.max_nodes.saturating_sub(self.nodes) / 4).min(20_000),
+                moves.iter().filter(|r| r.attack).map(|r| r.action).collect(),
+            );
+            let (proof, stats) = forcing.run(board, max_depth.div_ceil(2).min(4));
+            self.nodes += stats.nodes;
+            self.forcing = Some(stats);
+            if let Some(proof) = proof {
+                self.stop_reason = "forcing-win";
+                self.completed_score = WIN;
+                self.fallback = Some(Ranked { action: proof.action, score: WIN, own_signature: 0, attack: true });
+                self.reason = format!(
+                    "已验证连续强攻：无论对方怎样合法防守，至多再落 {} 面进攻镜即可形成无法化解的攻击。",
+                    proof.turns
+                );
+                return Some(proof.action);
+            }
         }
         let old_current = board.current;
         let old_alive = board.alive;
@@ -1347,6 +1444,7 @@ impl Search {
             plans: self.root_plans.len(),
             stop_reason: self.stop_reason.into(),
             reason: self.reason.clone(),
+            forcing: self.forcing.take(),
             iterations: std::mem::take(&mut self.iterations),
             partial_iteration: self.partial_iteration.take(),
         }

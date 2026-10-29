@@ -42,7 +42,8 @@ function apply(b, a, color) {
   else b.edges.set(a.id, { color })
 }
 function undo(b, a) { if (a.kind === 'diag') b.diags.delete(`${a.x},${a.y}`); else b.edges.delete(a.id) }
-const available = (b, a) => options(b).some(m => JSON.stringify(m) === JSON.stringify(a))
+const available = (b, a) => options(b).some(m => m.kind === a.kind && (m.kind === 'diag'
+  ? m.x === a.x && m.y === a.y && m.ori === a.ori : m.id === a.id))
 function legal(b, a, color) {
   if (!available(b, a)) return false
   apply(b, a, color)
@@ -240,3 +241,55 @@ apply(dangerBoard, defended.action, 'red')
 assert(!unanswerable(dangerBoard, danger.winningReply, 'blue', 'red'), 'must account for the known fatal reply before choosing a quiet move')
 // This fixture may still be lost to another route: no claim of global safety.
 console.log('ok: quiet-position search anticipates and disrupts the known unanswerable reply')
+
+// Verify the entire AND/OR certificate with the independent TS implementation.
+// Enumerate ALL board placements, not the Rust witness-path defense generator.
+function verifyForcingProof(board, proof, attacker, defender) {
+  assert(legal(board, proof.action, attacker), 'each proved attack is legal');
+  apply(board, proof.action, attacker);
+  assert(!simulate(board, defender).hits.includes(attacker), 'counterchecks must also be parried');
+  assert(simulate(board, attacker).hits.includes(defender), 'each attack really gives check');
+  const replies = defenses(board, attacker, defender);
+  const id = a => a.kind === 'diag' ? `d:${a.x}:${a.y}:${a.ori}` : a.id;
+  assert.deepEqual(proof.replies.map(r => id(r.action)).sort(), replies.map(id).sort(),
+    'a proof must cover every legal defense, without duplicates or omitted replies');
+  let turns = 1;
+  for (const reply of proof.replies) {
+    apply(board, reply.action, defender);
+    turns = Math.max(turns, 1 + verifyForcingProof(board, reply.continuation, attacker, defender));
+    undo(board, reply.action);
+  }
+  undo(board, proof.action);
+  return turns;
+}
+const chain = fixture('forcing-chain');
+const forcingWin = choose({ ...chain.request, budgetMs: 10_000, maxDepth: 3 });
+assert.equal(forcingWin.stats.stopReason, 'forcing-win');
+assert.equal(forcingWin.stats.forcing.status, 'proven');
+assert.equal(forcingWin.stats.depth, 0, 'tactical proof does not claim an ordinary minimax depth');
+assert.deepEqual(forcingWin.action, forcingWin.stats.forcing.proof.action);
+assert.equal(verifyForcingProof(boardOf(chain.request), forcingWin.stats.forcing.proof, 'blue', 'red'), 2);
+assert.equal(forcingWin.stats.forcing.winningTurns, 2);
+assert.equal(forcingWin.stats.forcing.proof.replies.length, 2);
+console.log('ok: continuous attack proof independently covers both legal defenses and every winning continuation');
+
+const longerChain = fixture('forcing-three');
+const longerWin = choose({ ...longerChain.request, budgetMs: 10_000 });
+assert.equal(longerWin.stats.stopReason, 'forcing-win');
+assert.equal(verifyForcingProof(boardOf(longerChain.request), longerWin.stats.forcing.proof,
+  colors[longerChain.request.current], colors[1 - longerChain.request.current]), 3);
+assert.equal(longerWin.stats.forcing.winningTurns, 3);
+console.log('ok: three successive checks are proved against the full branching defense tree');
+
+const doomed = fixture('no-defense'), doomedBoard = boardOf(doomed.request);
+const loser = colors[doomed.request.current], winner = colors[1 - doomed.request.current];
+assert(simulate(doomedBoard, winner).hits.includes(loser));
+assert.equal(defenses(doomedBoard, winner, loser).length, 0, 'independently exhaust all saving moves');
+const finish = choose({ ...doomed.request, budgetMs: 3000 });
+assert(legal(doomedBoard, finish.action, loser), 'a proved loss must still return a legal move');
+assert.equal(finish.stats.stopReason, 'no-defense');
+assert.equal(finish.stats.safe, false);
+assert(finish.stats.defenseComplete);
+apply(doomedBoard, finish.action, loser);
+assert(simulate(doomedBoard, winner).hits.includes(loser), 'the next turn really settles the loss');
+console.log('ok: a proved indefensible position completes normally instead of raising an AI error');
