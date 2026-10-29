@@ -22,7 +22,10 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - name: Install Rust and WASM target
+        run: rustup show
       - run: npm ci
+      - run: npm run test:ai
       - run: npm run build
       - name: Install browser dependencies
         run: |
