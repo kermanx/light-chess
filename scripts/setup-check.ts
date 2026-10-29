@@ -2,6 +2,9 @@ import assert from 'node:assert/strict'
 import { edgeOf, simulate, type Dir, type Home } from '../src/game'
 import { applyRemote, applySnapshot, board, dispatch, isValidHomeSetup, serialize, startLocal, state } from '../src/store'
 
+// This fixture checks timed setup explicitly; ordinary games now default to no clock.
+state.clockSettings.enabled = true
+
 for (const boundaryReflects of [false, true]) {
   for (let turns = 0; turns < 4; turns++) {
     const rotate = (home: Home): Home => {

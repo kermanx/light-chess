@@ -6,7 +6,7 @@ export interface ClockSettings {
   incrementMs: number
 }
 
-export const defaultClockSettings = (): ClockSettings => ({ enabled: true, initialMs: 120_000, incrementMs: 10_000 })
+export const defaultClockSettings = (): ClockSettings => ({ enabled: false, initialMs: 120_000, incrementMs: 10_000 })
 
 export function normalizeClockSettings(s: ClockSettings): ClockSettings {
   return {
