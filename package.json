@@ -8,7 +8,12 @@
     "relay": "node scripts/dev-mqtt-relay.mjs",
     "relay:nostr": "node scripts/dev-relay.mjs",
     "build": "vue-tsc -b && vite build && node scripts/gen-404.mjs",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "build:ai": "node scripts/build-ai.mjs",
+    "predev": "npm run build:ai",
+    "prebuild": "npm run build:ai",
+    "test:ai": "cargo test --manifest-path ai/Cargo.toml && npm run build:ai && node scripts/ai-engine-check.mjs && npx tsx scripts/ai-integration-check.ts && npx tsx scripts/ai-clock-check.ts && node scripts/ai-strategy-check.mjs && npx tsx scripts/ai-analysis-check.ts",
+    "test:ai-page": "npm run build && npx tsx scripts/ai-test-export-check.ts && node scripts/ai-test-page-check.mjs && node scripts/ai-preview-update-check.mjs"
   },
   "dependencies": {
     "@trystero-p2p/mqtt": "^0.25.3",

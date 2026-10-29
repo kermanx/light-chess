@@ -14,6 +14,7 @@ import {
   serialize,
   serializeClock,
   setClockSender,
+  setAiPlayers,
   setSender,
   startOnline,
   state,
@@ -76,9 +77,9 @@ const genToken = () =>
 
 type Msg =
   | { t: 'hello'; token: string; want: Color | null }
-  | { t: 'welcome'; color: Color; players: number; joined: number; started: boolean }
+  | { t: 'welcome'; color: Color; players: number; joined: number; started: boolean; aiPlayers?: Color[]; aiBudgetMs?: number }
   | { t: 'room-info'; joined: number }
-  | { t: 'start'; players: number; settings?: { size: number; laserAllowed: boolean; allowUndo: boolean; boundaryReflects?: boolean; clockSettings?: ClockSettings } }
+  | { t: 'start'; players: number; settings?: { size: number; laserAllowed: boolean; allowUndo: boolean; boundaryReflects?: boolean; clockSettings?: ClockSettings; aiPlayers?: Color[]; aiBudgetMs?: number } }
   | { t: 'act'; act: Action; origin?: string; clock?: ClockSync }
   | { t: 'clock'; clock: ClockSync }
   | { t: 'sync'; snap: Snapshot }
@@ -92,6 +93,8 @@ interface NetRecord {
   players: number
   /** 仅房主：token → 座位色（房主刷新后仍能认出重连的老玩家） */
   seats?: Record<string, Color>
+  aiPlayers?: Color[]
+  aiBudgetMs?: number
 }
 
 // 身份档案存两份：sessionStorage（标签页私有，同标签页刷新保留、不同标签页隔离）为主，
@@ -207,7 +210,7 @@ const send = (msg: Msg, target?: string) => {
 const sendAct = (act: Action) => {
   // 中继模式由房主转发动作：开局只需所有人连上房主，不必等待客人两两发现。
   // origin 保留给旧版中继客户端去重；新版客人等房主确认才应用动作。
-  if (relayRoom || state.clockSettings.enabled) {
+  if (relayRoom || state.clockSettings.enabled || state.aiPlayers.length > 0) {
     if (isHost) send({ t: 'act', act, origin: token, clock: serializeClock() })
     else if (hostPeerId) send({ t: 'act', act, origin: token }, hostPeerId)
   } else send({ t: 'act', act })
@@ -215,7 +218,7 @@ const sendAct = (act: Action) => {
 
 function persistSeats() {
   const rec = loadNet()
-  if (rec?.host) saveNet({ ...rec, seats: Object.fromEntries(seats) })
+  if (rec?.host) saveNet({ ...rec, seats: Object.fromEntries(seats), aiPlayers: [...state.aiPlayers], aiBudgetMs: state.aiBudgetMs })
 }
 
 function clearHello() {
@@ -231,6 +234,20 @@ function sendHello(target?: string) {
 
 // ---------- 房主侧 ----------
 
+/** AI 席位立即就座，开局只等待真人连接。 */
+function hostStartIfReady(): boolean {
+  if (!isHost || started || connected.size + state.aiPlayers.length !== state.players.length) return false
+  started = true
+  const aiPlayers = [...state.aiPlayers]
+  startOnline(state.myColor!, state.roomCode, state.players, aiPlayers)
+  send({ t: 'start', players: state.players.length, settings: {
+    size: state.size, laserAllowed: state.laserAllowed, allowUndo: state.allowUndo,
+    boundaryReflects: state.boundaryReflects, clockSettings: { ...state.clockSettings },
+    aiPlayers, aiBudgetMs: state.aiBudgetMs,
+  } })
+  return true
+}
+
 function hostOnHello(msg: Extract<Msg, { t: 'hello' }>, peerId: string) {
   if (!isHost) return
   // 对方 token 与房主自己相同：只可能是同机另一标签页读到了本机档案，
@@ -245,7 +262,7 @@ function hostOnHello(msg: Extract<Msg, { t: 'hello' }>, peerId: string) {
   const rejoin = color !== undefined
   if (!color) {
     if (started) return send({ t: 'err', msg: '对局已开始，无法加入' }, peerId)
-    const used = new Set(seats.values())
+    const used = new Set([...seats.values(), ...state.aiPlayers])
     // 优先满足对方申报的原座位（房主自己刷新丢了座位表时尤其有用）
     color =
       msg.want && state.players.includes(msg.want) && !used.has(msg.want)
@@ -257,41 +274,17 @@ function hostOnHello(msg: Extract<Msg, { t: 'hello' }>, peerId: string) {
   }
   peerByToken.set(msg.token, peerId)
   connected.add(msg.token)
-  state.roomJoined = connected.size
+  state.roomJoined = connected.size + state.aiPlayers.length
   send(
-    { t: 'welcome', color, players: state.players.length, joined: connected.size, started },
+    { t: 'welcome', color, players: state.players.length, joined: connected.size + state.aiPlayers.length, started, aiPlayers: state.aiPlayers, aiBudgetMs: state.aiBudgetMs },
     peerId,
   )
-  send({ t: 'room-info', joined: connected.size })
+  send({ t: 'room-info', joined: connected.size + state.aiPlayers.length })
 
-  if (!started && connected.size === state.players.length && seats.size === state.players.length) {
-    // 全员到齐：中继模式把设置与开局合成一条消息，在客人能操作之前应用。
-    // 另发 board-size 会在慢网络下清空客人刚放好的家。
-    started = true
-    startOnline(state.myColor!, state.roomCode, state.players)
-    const settings = {
-      size: state.size, laserAllowed: state.laserAllowed, allowUndo: state.allowUndo,
-      boundaryReflects: state.boundaryReflects,
-      clockSettings: { ...state.clockSettings },
-    }
-    if (relayRoom) {
-      send({
-        t: 'start',
-        players: state.players.length,
-        settings,
-      })
-    } else {
-      // 兼容仍在使用旧版客户端的 P2P 房间。
-      send({ t: 'start', players: state.players.length, settings })
-      sendAct({ kind: 'laser-setting', color: state.players[0], allow: state.laserAllowed })
-      sendAct({ kind: 'undo-setting', color: state.players[0], allow: state.allowUndo, floor: 0 })
-      sendAct({ kind: 'board-size', color: state.players[0], size: state.size })
-    }
-    return
-  }
+  if (hostStartIfReady()) return
   if (started) {
     if (rejoin) send({ t: 'sync', snap: serialize() }, peerId) // 重连者补发权威状态
-    if (connected.size === state.players.length) {
+    if (connected.size + state.aiPlayers.length === state.players.length) {
       // 全员在线：解除掉线锁定，并顺手做一次全量对齐
       state.peerLeft = false
       send({ t: 'sync', snap: serialize() })
@@ -312,11 +305,11 @@ function hostOnPeerLeave(peerId: string) {
   // 刷新后同一 token 已绑定新 peer；旧连接迟到的离线事件不能再次锁住棋盘。
   if (!found) return
   if (state.phase === 'lobby') {
-    state.roomJoined = connected.size
-    send({ t: 'room-info', joined: connected.size })
+    state.roomJoined = connected.size + state.aiPlayers.length
+    send({ t: 'room-info', joined: connected.size + state.aiPlayers.length })
   } else {
     state.peerLeft = true
-    if (relayRoom) send({ t: 'room-info', joined: connected.size })
+    if (relayRoom) send({ t: 'room-info', joined: connected.size + state.aiPlayers.length })
   }
 }
 
@@ -330,6 +323,8 @@ function onWelcome(msg: Extract<Msg, { t: 'welcome' }>, peerId: string) {
   clearHello()
   state.myColor = msg.color
   state.players = seatColors(msg.players)
+  setAiPlayers(msg.aiPlayers ?? [])
+  state.aiBudgetMs = msg.aiBudgetMs ?? 10000
   state.roomJoined = msg.joined
   saveNet({ code: state.roomCode, token, host: false, players: msg.players })
   if (inGame()) state.peerLeft = false // 对局恢复（随后的 sync 会做状态对齐）
@@ -362,11 +357,12 @@ function handle(msg: Msg, peerId: string) {
         }
         state.boundaryReflects = msg.settings?.boundaryReflects ?? false
         state.clockSettings = msg.settings?.clockSettings ?? { ...defaultClockSettings(), enabled: false }
-        startOnline(state.myColor!, state.roomCode, state.players)
+        state.aiBudgetMs = msg.settings?.aiBudgetMs ?? 10000
+        startOnline(state.myColor!, state.roomCode, state.players, msg.settings?.aiPlayers ?? [])
       }
       break
     case 'act':
-      if (relayRoom || state.clockSettings.enabled) {
+      if (relayRoom || state.clockSettings.enabled || state.aiPlayers.length > 0) {
         if (!isHost && peerId !== hostPeerId) return
         if (isHost) {
           const seatToken = [...peerByToken].find(([, id]) => id === peerId)?.[0]
@@ -473,7 +469,7 @@ function waitWelcome(): Promise<void> {
 }
 
 /** 创建房间，返回房间号（本方坐 0 号位）；signaling 决定信令通道并编入房号首位 */
-export async function netCreate(playerCount: number, signaling: Signaling = 'relay'): Promise<string> {
+export async function netCreate(playerCount: number, signaling: Signaling = 'relay', aiPlayers: Color[] = []): Promise<string> {
   netClose()
   isHost = true
   started = false
@@ -481,14 +477,17 @@ export async function netCreate(playerCount: number, signaling: Signaling = 'rel
   const code = genCode(signaling)
   state.players = seatColors(playerCount)
   state.myColor = state.players[0]
+  // 建房时尚在大厅；房主座位始终保留给真人。
+  setAiPlayers(aiPlayers.filter(c => c !== state.players[0]))
   state.roomCode = code
-  state.roomJoined = 1
+  state.roomJoined = 1 + state.aiPlayers.length
   state.peerLeft = false
   seats = new Map([[token, state.myColor]])
   connected = new Set([token])
   peerByToken = new Map()
-  saveNet({ code, token, host: true, players: playerCount, seats: Object.fromEntries(seats) })
+  saveNet({ code, token, host: true, players: playerCount, seats: Object.fromEntries(seats), aiPlayers: state.aiPlayers, aiBudgetMs: state.aiBudgetMs })
   await openRoom(code)
+  hostStartIfReady()
   return code
 }
 
@@ -523,12 +522,16 @@ export async function netRejoin(code: string, color: Color, playerCount: number)
     // 房主恢复：重建座位表，等其他玩家 hello 后逐个补发权威状态
     isHost = true
     state.players = seatColors(playerCount)
+    setAiPlayers(rec.aiPlayers ?? state.aiPlayers)
+    state.aiBudgetMs = rec.aiBudgetMs ?? state.aiBudgetMs
     seats = new Map(Object.entries(rec.seats ?? {}))
     seats.set(token, color)
     persistSeats()
     connected = new Set([token])
     peerByToken = new Map()
     await openRoom(state.roomCode)
+    state.roomJoined = connected.size + state.aiPlayers.length
+    if (state.roomJoined === state.players.length) state.peerLeft = false
     return
   }
   isHost = false
@@ -538,6 +541,7 @@ export async function netRejoin(code: string, color: Color, playerCount: number)
 }
 
 export function netClose() {
+  if (inGame()) state.peerLeft = true
   clearHello()
   if (relayTimer) clearInterval(relayTimer)
   relayTimer = null

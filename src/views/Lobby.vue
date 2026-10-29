@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import { MAX_PLAYERS, MIN_PLAYERS } from '../game'
+import { MAX_PLAYERS, MIN_PLAYERS, PALETTE, type Color } from '../game'
 import { announceRoom, watchRooms, type PublicRoom } from '../directory'
 import { isValidCode, netClose, netCreate, netJoin, signaling, type Signaling } from '../net'
 import { SIZE_MAX, SIZE_MIN, startLocal, state } from '../store'
@@ -17,6 +17,22 @@ const busy = ref(false)
 const copied = ref(false)
 /** 玩家人数（单机与创建房间共用） */
 const count = ref(MIN_PLAYERS)
+const aiSeats = ref<Color[]>([])
+const configuredSeats = computed(() => PALETTE.slice(0, count.value))
+const selectedAi = computed(() => configuredSeats.value.map(p => p.id).filter(c =>
+  aiSeats.value.includes(c) && (preparing.value !== 'online' || c !== PALETTE[0].id)))
+const hasAi = computed(() => selectedAi.value.length > 0)
+watch(hasAi, value => { if (value) state.boundaryReflects = true })
+function changeSeat(color: Color, event: Event) {
+  const ai = (event.target as HTMLSelectElement).value === 'ai'
+  aiSeats.value = ai ? [...aiSeats.value.filter(c => c !== color), color] : aiSeats.value.filter(c => c !== color)
+}
+function challengeAi() {
+  count.value = 2
+  aiSeats.value = ['red']
+  state.boundaryReflects = true
+  prepare('local')
+}
 /** 联机方式（3=中继，1/2=旧 P2P 协议） */
 const sig = ref<Signaling>('relay')
 /** 公开房间：创建后广播到大厅，其他玩家在加入页可直接看到并点击进入 */
@@ -55,7 +71,7 @@ function clampSize(e: Event) {
 }
 
 function local() {
-  startLocal(count.value)
+  startLocal(count.value, selectedAi.value)
 }
 
 function prepare(mode: 'local' | 'online' | 'ai-human' | 'aivai') {
@@ -165,7 +181,8 @@ async function create() {
   busy.value = true
   error.value = ''
   try {
-    code.value = await netCreate(count.value, sig.value)
+    code.value = await netCreate(count.value, sig.value, selectedAi.value)
+    if (state.phase !== 'lobby') return
     view.value = 'created'
     void syncAnnounce()
   } catch (e) {
@@ -182,7 +199,7 @@ async function onSigChange(e: Event) {
   busy.value = true
   error.value = ''
   try {
-    code.value = await netCreate(count.value, sig.value)
+    code.value = await netCreate(count.value, sig.value, selectedAi.value)
     void syncAnnounce()
   } catch (err) {
     error.value = (err as Error).message
@@ -236,7 +253,11 @@ onMounted(() => {
       <div class="cards">
         <button class="card" @click="prepare('local')">
           <span class="card-title">单机对战</span>
-          <span class="card-desc">同屏对弈，轮流出招</span>
+          <span class="card-desc">自由搭配人类与 AI 座位</span>
+        </button>
+        <button class="card" @click="challengeAi">
+          <span class="card-title">挑战 AI</span>
+          <span class="card-desc">逻辑搜索，光路对决</span>
         </button>
         <button class="card" :disabled="busy" @click="prepare('online')">
           <span class="card-title">创建房间</span>
@@ -337,9 +358,32 @@ onMounted(() => {
             {{ n }}
           </button>
         </div>
+        <div class="seat-settings" aria-label="玩家座位">
+          <label v-for="p in configuredSeats" :key="p.id" class="seat-row">
+            <span :style="{ color: p.hex }">{{ p.name }}方{{ preparing === 'online' && p.id === 'blue' ? '（房主）' : '' }}</span>
+            <select class="sig-select" :aria-label="`${p.name}方控制方式`" :value="selectedAi.includes(p.id) ? 'ai' : 'human'"
+              :disabled="preparing === 'online' && p.id === 'blue'" @change="changeSeat(p.id, $event)">
+              <option value="human">{{ preparing === 'online' ? '真人玩家' : '人类' }}</option>
+              <option value="ai">AI</option>
+            </select>
+          </label>
+        </div>
+        <label v-if="hasAi" class="laser-opt">
+          AI 每步最多思考
+          <select v-model.number="state.aiBudgetMs" class="sig-select" aria-label="AI 每步思考上限">
+            <option :value="3000">3 秒</option>
+            <option :value="10000">10 秒</option>
+            <option :value="30000">30 秒（棋力优先）</option>
+          </select>
+        </label>
+        <p v-if="hasAi" class="ai-hint">AI 可提前落子，自动布置基地，需要边界反射。联机 AI 由房主运行，不占真人连接。</p>
+        <label class="laser-opt">棋盘
+          <input class="size-input" type="number" :min="SIZE_MIN" :max="SIZE_MAX" :value="state.size" @change="clampSize" />
+          × {{ state.size }} 格
+        </label>
         <ClockSettings :settings="state.clockSettings" @change="state.clockSettings = $event" />
         <label class="laser-opt">
-          <input type="checkbox" v-model="state.boundaryReflects" />
+          <input type="checkbox" v-model="state.boundaryReflects" :disabled="hasAi" />
           边界反射
         </label>
         <label v-if="preparing === 'online'" class="laser-opt pub-opt">
@@ -371,7 +415,7 @@ onMounted(() => {
       <div class="settings">
         <ClockSettings :settings="state.clockSettings" @change="state.clockSettings = $event" />
         <label class="laser-opt">
-          <input type="checkbox" v-model="state.boundaryReflects" />
+          <input type="checkbox" v-model="state.boundaryReflects" :disabled="hasAi" />
           边界反射（所有光线碰到边界都会反射）
         </label>
         <label class="laser-opt">
@@ -411,7 +455,7 @@ onMounted(() => {
 
       <p class="waiting">
         <span class="pulse"></span>
-        等待玩家加入 {{ state.roomJoined }}/{{ count }}<span class="dots"><i>.</i><i>.</i><i>.</i></span>
+        等待真人加入 · 已就位 {{ state.roomJoined }}/{{ count }}（AI {{ selectedAi.length }}）<span class="dots"><i>.</i><i>.</i><i>.</i></span>
       </p>
       <p class="relay-status" :class="{ warn: signaling.total > 0 && signaling.up === 0 }">
         <template v-if="signaling.up > 0">中继已连接 {{ signaling.up }} 个</template>
@@ -466,6 +510,10 @@ onMounted(() => {
 </template>
 
 <style scoped>
+.seat-settings { display: flex; flex-direction: column; gap: 10px; }
+.seat-row { display: flex; align-items: center; justify-content: space-between; gap: 18px; font-size: 14px; }
+.ai-hint { margin: 0; font-size: 12px; color: #8a7f68; line-height: 1.6; }
+
 .lobby {
   display: flex;
   flex-direction: column;

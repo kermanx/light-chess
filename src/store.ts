@@ -1,4 +1,5 @@
 import { computed, reactive, ref, watch } from 'vue'
+import { toAiMoveAnalysis, type AiMoveAnalysis } from './ai/protocol'
 import { defaultClockSettings, freshClock, normalizeClockSettings, timeLeft, type ClockSettings, type ClockState, type ClockSync } from './clock'
 import {
   createsEnclosure,
@@ -31,10 +32,10 @@ export type MoveRecord =
   | { kind: 'diag'; x: number; y: number; ori: Ori; color: Color }
 
 /** 上一步放置的镜子（家的自动镜不算），用于 UI 加粗高亮与撤回权限判定 */
-export type LastMove =
+export type LastMove = (
   | { kind: 'edge'; id: string; color: Color }
   | { kind: 'diag'; key: string; color: Color }
-  | null
+) & { aiAnalysis?: AiMoveAnalysis } | null
 
 /** 撤回一步要恢复的局面帧（放镜前的完整局面） */
 export interface UndoFrame {
@@ -52,11 +53,12 @@ export interface UndoFrame {
 
 export type Action =
   | { kind: 'setup'; color: Color; home: Home }
-  | { kind: 'edge'; color: Color; id: string }
-  | { kind: 'diag'; color: Color; x: number; y: number; ori: Ori }
+  | { kind: 'edge'; color: Color; id: string; aiAnalysis?: AiMoveAnalysis }
+  | { kind: 'diag'; color: Color; x: number; y: number; ori: Ori; aiAnalysis?: AiMoveAnalysis }
   | { kind: 'laser-setting'; color: Color; allow: boolean }
   | { kind: 'undo-setting'; color: Color; allow: boolean; floor?: number }
   | { kind: 'undo'; color: Color; frame: UndoFrame }
+  | { kind: 'ai-resume'; color: Color }
   | { kind: 'board-size'; color: Color; size: number }
   | { kind: 'boundary-setting'; color: Color; enabled: boolean }
   | { kind: 'clock-setting'; color: Color; settings: ClockSettings }
@@ -74,6 +76,12 @@ export const state = reactive({
   roomJoined: 0,
   /** 座位表（回合顺序），players[0] 为房主 */
   players: seatColors(2) as Color[],
+  /** AI 席位不占用联机连接；在线时统一由房主运行。 */
+  aiPlayers: [] as Color[],
+  aiBudgetMs: 10_000,
+  /** 撤回后暂停 AI，避免刚撤掉的一步被立即重下。 */
+  aiPaused: false,
+  positionRevision: 0,
   phase: 'lobby' as Phase,
   homes: {} as Partial<Record<Color, Home>>,
   edges: new Map<string, Mirror>(),
@@ -118,6 +126,20 @@ export const board: BoardState = {
 
 /** 房主（0 号座位） */
 export const hostColor = computed<Color>(() => state.players[0])
+export const isAiPlayer = (color: Color) => state.aiPlayers.includes(color)
+/** Explain only the last actual AI move; stale/legacy/mismatched records stay hidden. */
+export const lastAiAnalysis = computed(() => {
+  const move = state.lastMove
+  if (!move || !isAiPlayer(move.color) || (state.phase !== 'play' && state.phase !== 'over')) return null
+  const mirror = move.kind === 'edge' ? state.edges.get(move.id) : state.diags.get(move.key)
+  const analysis = toAiMoveAnalysis(move.aiAnalysis)
+  return mirror?.color === move.color && analysis ? { color: move.color, ...analysis } : null
+})
+export const aiAuthority = () => state.mode === 'local' || (state.mode === 'online' && state.myColor === state.players[0])
+export function setAiPlayers(colors: Color[]) {
+  state.aiPlayers = state.players.filter(c => colors.includes(c) && (state.mode !== 'online' || c !== state.players[0]))
+  if (state.aiPlayers.length) state.boundaryReflects = true
+}
 
 /** 回合顺序中的下一位存活玩家 */
 const nextAlive = (c: Color): Color => {
@@ -149,6 +171,8 @@ export const isValidExit = (x: number, y: number, dir: Dir) => {
 
 /** 试放完整基地，只禁止开局第一回合实际结算时立即淘汰玩家的布置。 */
 export function isValidHomeSetup(home: Home, color: Color): boolean {
+  if (![home.x, home.y, home.dir].every(Number.isInteger) || home.x < 0 || home.y < 0 ||
+    home.x >= state.size || home.y >= state.size || home.dir < 0 || home.dir > 3) return false
   if (!isValidHomeCell(home.x, home.y, color) || !isValidExit(home.x, home.y, home.dir)) return false
   const trial: BoardState = {
     homes: { ...state.homes, [color]: home },
@@ -234,6 +258,8 @@ const pushSessionUrl = () => {
 }
 
 function resetBoard() {
+  state.positionRevision++
+  state.aiPaused = false
   // 注意：board.homes 持有本对象的引用，必须原地修改，不能整体替换
   for (const c of Object.keys(state.homes) as Color[]) delete state.homes[c]
   state.edges.clear()
@@ -251,24 +277,26 @@ function resetBoard() {
 }
 
 /** 进入单机模式 */
-export function startLocal(playerCount = 2) {
+export function startLocal(playerCount = 2, aiPlayers: Color[] = []) {
   state.mode = 'local'
   state.myColor = null
   state.roomCode = ''
   state.peerLeft = false
   state.players = seatColors(playerCount)
+  setAiPlayers(aiPlayers)
   state.sessionId = crypto.randomUUID()
   resetBoard()
   pushSessionUrl()
 }
 
 /** 联机模式下所有人到齐，开始布置 */
-export function startOnline(myColor: Color, roomCode: string, players: Color[]) {
+export function startOnline(myColor: Color, roomCode: string, players: Color[], aiPlayers: Color[] = []) {
   state.mode = 'online'
   state.myColor = myColor
   state.roomCode = roomCode
   state.peerLeft = false
   state.players = players
+  setAiPlayers(aiPlayers)
   state.sessionId = crypto.randomUUID()
   resetBoard()
   pushSessionUrl()
@@ -276,12 +304,15 @@ export function startOnline(myColor: Color, roomCode: string, players: Color[]) 
 
 /** 回大厅，清空一切（存档保留在存储里，浏览器前进仍可恢复对局） */
 export function toLobby() {
+  state.positionRevision++
   state.mode = null
   state.myColor = null
   state.roomCode = ''
   state.peerLeft = false
   state.roomJoined = 0
   state.players = seatColors(2)
+  state.aiPlayers = []
+  state.aiPaused = false
   state.phase = 'lobby'
   for (const c of Object.keys(state.homes) as Color[]) delete state.homes[c]
   state.edges.clear()
@@ -337,10 +368,13 @@ function holdClock(at: number) {
   state.clock.runningSince = null
 }
 
+const aiTurnPaused = () => state.aiPaused && isAiPlayer(state.current)
+const shouldRunClock = () => state.clockSettings.enabled && state.phase === 'play' && !state.peerLeft && !aiTurnPaused()
+
 function startTurnClock(at: number) {
   state.clock.turn++
   state.clock.revision++
-  state.clock.runningSince = state.clockSettings.enabled && state.phase === 'play' && !state.peerLeft ? at : null
+  state.clock.runningSince = shouldRunClock() ? at : null
 }
 
 export function serializeClock(now = Date.now()): ClockSync {
@@ -354,7 +388,7 @@ export function applyClockSync(sync: ClockSync, force = false) {
   if (!force && sync.revision < state.clock.revision) return
   clockOffset = isClockAuthority() ? 0 : Date.now() - sync.at
   state.clock = {
-    remaining: { ...sync.remaining }, runningSince: sync.runningSince,
+    remaining: { ...sync.remaining }, runningSince: aiTurnPaused() ? null : sync.runningSince,
     turn: sync.turn, revision: sync.revision,
   }
   clockNow.value = Date.now()
@@ -384,14 +418,14 @@ export function tickClock(now = Date.now()): boolean {
 watch(() => state.peerLeft, (paused) => {
   if (!state.clockSettings.enabled || state.phase !== 'play') return
   if (paused) holdClock(clockTime())
-  else if (isClockAuthority()) state.clock.runningSince = Date.now()
+  else if (isClockAuthority() && shouldRunClock()) state.clock.runningSince = Date.now()
   if (isClockAuthority()) {
     state.clock.revision++
     broadcastClock()
   }
 }, { flush: 'sync' })
 
-function validate(a: Action, local: boolean): boolean {
+function validate(a: Action, local: boolean, ai = false): boolean {
   if (a.kind === 'timeout') {
     return !local && !isClockAuthority() && state.phase === 'play' &&
       a.color === state.current && a.turn === state.clock.turn
@@ -402,8 +436,13 @@ function validate(a: Action, local: boolean): boolean {
     return state.mode !== 'online' || a.color === state.players[0]
   }
   // 联机模式本地操作只能以本方颜色发出
-  if (local && state.mode === 'online' && a.color !== state.myColor) return false
+  if (local && !ai && state.mode === 'online' && a.color !== state.myColor) return false
+  if (local && !ai && ['setup', 'diag', 'edge'].includes(a.kind) && isAiPlayer(a.color)) return false
   if (state.peerLeft) return false
+  if (a.kind === 'ai-resume') {
+    return state.phase === 'play' && state.aiPaused && state.aiPlayers.length > 0 &&
+      (state.mode === 'local' || a.color === state.players[0])
+  }
   if (a.kind === 'laser-setting' || a.kind === 'undo-setting') {
     // 只有房主可以改光路/撤回设置
     return state.mode === 'online' && a.color === state.players[0]
@@ -414,12 +453,14 @@ function validate(a: Action, local: boolean): boolean {
     // 且不能撤到开启该设置之前的步骤（undoFloor 为开启时的栈深）
     return (
       state.mode === 'local' ||
-      (state.allowUndo && state.lastMove?.color === a.color && undoDepth.value > state.undoFloor)
+      (state.allowUndo && (state.lastMove?.color === a.color ||
+        (a.color === state.players[0] && !!state.lastMove && isAiPlayer(state.lastMove.color))) && undoDepth.value > state.undoFloor)
     )
   }
   if (a.kind === 'board-size' || a.kind === 'boundary-setting' || a.kind === 'clock-setting') {
     // 仅布置阶段可调；联机只有房主可调，单机任意
     if (state.phase !== 'setup') return false
+    if (a.kind === 'boundary-setting' && !a.enabled && state.aiPlayers.length) return false
     return state.mode === 'local' || a.color === state.players[0]
   }
   if (a.kind === 'setup') {
@@ -430,16 +471,49 @@ function validate(a: Action, local: boolean): boolean {
   if (state.phase !== 'play' || a.color !== state.current) return false
   if (state.dead.includes(a.color)) return false // 出局者不能操作
   if (a.kind === 'edge') {
+    const m = /^([hv]):(\d+):(\d+)$/.exec(a.id)
+    if (!m) return false
+    const x = Number(m[2]), y = Number(m[3])
+    if (m[1] === 'h' ? x >= state.size || y > state.size : x > state.size || y >= state.size) return false
     if (state.edges.has(a.id)) return false
     return !wouldEnclose(a.id, a.color)
   }
-  return !isHomeCell(a.x, a.y) && !state.diags.has(`${a.x},${a.y}`) &&
+  return Number.isInteger(a.x) && Number.isInteger(a.y) && a.x >= 0 && a.y >= 0 &&
+    a.x < state.size && a.y < state.size && (a.ori === '/' || a.ori === '\\') &&
+    !isHomeCell(a.x, a.y) && !state.diags.has(`${a.x},${a.y}`) &&
     !wouldEncloseDiag(a.x, a.y, a.ori, a.color)
 }
 
 function apply(a: Action, at = Date.now()) {
+  const before = actionObservers.size ? serialize() : null
+  applyAction(a, at)
+  if (before) {
+    const after = serialize()
+    for (const observer of actionObservers) {
+      try { observer(a, before, after) } catch (error) { console.error('Action recorder failed', error) }
+    }
+  }
+}
+
+/** Observe accepted actions only, with both positions, including undo and settings. */
+const actionObservers = new Set<(action: Action, before: Snapshot, after: Snapshot) => void>()
+export function onActionApplied(observer: (action: Action, before: Snapshot, after: Snapshot) => void) {
+  actionObservers.add(observer)
+  return () => actionObservers.delete(observer)
+}
+
+function applyAction(a: Action, at: number) {
+  // 展示/撤回权限设置与棋钟同步不改变光学局面，不应打断正在进行的搜索。
+  if (!['laser-setting', 'undo-setting', 'clock-setting'].includes(a.kind)) state.positionRevision++
   if (a.kind === 'restart') {
     resetBoard()
+    return
+  }
+  if (a.kind === 'ai-resume') {
+    state.aiPaused = false
+    // 继续原回合，不新增回合、不加秒，也不重置正在计时的真人回合起点。
+    if (state.clock.runningSince === null && shouldRunClock()) state.clock.runningSince = at
+    state.clock.revision++
     return
   }
   if (a.kind === 'laser-setting') {
@@ -480,6 +554,7 @@ function apply(a: Action, at = Date.now()) {
     return
   }
   if (a.kind === 'undo') {
+    state.aiPaused = state.aiPlayers.length > 0
     // 各端都弹出各自栈顶（无刷新时各端栈完全一致）；
     // 恢复以动作携带的帧为准，刷新后栈深度不一致也不会分叉
     if (moveHistory.length) moveHistory.pop()
@@ -509,6 +584,7 @@ function apply(a: Action, at = Date.now()) {
     return
   }
   if (a.kind === 'setup') {
+    state.aiPaused = false
     state.homes[a.color] = a.home
     // 出口之外的 3 条边自动放镜
     for (const d of [0, 1, 2, 3] as Dir[]) {
@@ -523,16 +599,18 @@ function apply(a: Action, at = Date.now()) {
     return
   }
   // 合法落子先扣实际用时；撤回恢复落子前的剩余时间，不重复赠送加秒。
+  state.aiPaused = false
   holdClock(at)
   pushFrame()
   if (state.clockSettings.enabled) state.clock.remaining[a.color] += state.clockSettings.incrementMs
+  const aiAnalysis = isAiPlayer(a.color) ? toAiMoveAnalysis(a.aiAnalysis) : undefined
   if (a.kind === 'edge') {
     state.edges.set(a.id, { color: a.color })
-    state.lastMove = { kind: 'edge', id: a.id, color: a.color }
+    state.lastMove = { kind: 'edge', id: a.id, color: a.color, ...(aiAnalysis ? { aiAnalysis } : {}) }
     state.moves.push({ kind: 'edge', id: a.id, color: a.color })
   } else {
     state.diags.set(`${a.x},${a.y}`, { color: a.color, ori: a.ori })
-    state.lastMove = { kind: 'diag', key: `${a.x},${a.y}`, color: a.color }
+    state.lastMove = { kind: 'diag', key: `${a.x},${a.y}`, color: a.color, ...(aiAnalysis ? { aiAnalysis } : {}) }
     state.moves.push({ kind: 'diag', x: a.x, y: a.y, ori: a.ori, color: a.color })
   }
   if (state.phase === 'play') {
@@ -552,10 +630,10 @@ export function setSender(fn: ((a: Action) => void) | null, deferLocal = false) 
 
 /** 本地操作入口：校验 → 应用 →（联机时）广播 */
 export function dispatch(a: Action) {
-  if ((a.kind === 'edge' || a.kind === 'diag' || a.kind === 'undo') && tickClock()) return
+  if ((a.kind === 'edge' || a.kind === 'diag' || a.kind === 'undo' || a.kind === 'ai-resume') && tickClock()) return
   if (!validate(a, true)) return
   // 中继客人的动作由房主确认后通过 applyRemote 应用，避免刷新/重连时局面分叉。
-  if (state.mode === 'online' && (waitForHost || (state.clockSettings.enabled && !isClockAuthority()))) {
+  if (state.mode === 'online' && (waitForHost || ((state.clockSettings.enabled || state.aiPlayers.length > 0) && !isClockAuthority()))) {
     sender?.(a)
     return
   }
@@ -563,9 +641,19 @@ export function dispatch(a: Action) {
   if (state.mode === 'online') sender?.(a)
 }
 
+/** AI 也必须经过完整校验；仅本地或房主可代表 AI 发动作。 */
+export function dispatchAi(a: Action): boolean {
+  if (!aiAuthority() || !isAiPlayer(a.color) || !state.boundaryReflects || state.aiPaused) return false
+  if (!['setup', 'diag', 'edge'].includes(a.kind)) return false
+  if (tickClock() || !validate(a, true, true)) return false
+  apply(a)
+  if (state.mode === 'online') sender?.(a)
+  return true
+}
+
 /** 远端操作入口 */
 export function applyRemote(a: Action, clock?: ClockSync) {
-  if (isClockAuthority() && (a.kind === 'edge' || a.kind === 'diag' || a.kind === 'undo') && tickClock()) return false
+  if (isClockAuthority() && (a.kind === 'edge' || a.kind === 'diag' || a.kind === 'undo' || a.kind === 'ai-resume') && tickClock()) return false
   if (!validate(a, false)) return false
   apply(a, clock?.at ?? Date.now())
   if (clock) applyClockSync(clock, true)
@@ -576,7 +664,8 @@ export function applyRemote(a: Action, clock?: ClockSync) {
 export const canAct = computed(() => {
   if (state.phase !== 'setup' && state.phase !== 'play') return false
   if (state.peerLeft) return false
-  if (state.mode === 'local') return true
+  if (state.mode === 'local') return !isAiPlayer(state.phase === 'setup' ? setupColor.value : state.current)
+  if (!state.myColor || isAiPlayer(state.myColor)) return false
   if (state.phase === 'setup') return !state.homes[state.myColor!]
   return state.current === state.myColor
 })
@@ -584,7 +673,8 @@ export const canAct = computed(() => {
 /** 单机 setup 阶段的当前布置方（按座位顺序依次布置） */
 export const setupColor = computed<Color>(() => {
   if (state.mode === 'online') return state.myColor!
-  return state.players.find((c) => !state.homes[c]) ?? state.players[0]
+  return state.players.find((c) => !state.homes[c] && !isAiPlayer(c)) ??
+    state.players.find((c) => !state.homes[c]) ?? state.players[0]
 })
 
 // ---------- 对局持久化（localStorage） ----------
@@ -596,6 +686,9 @@ export interface Snapshot {
   roomCode: string
   /** 座位表；缺省视为双人 */
   players?: Color[]
+  aiPlayers?: Color[]
+  aiBudgetMs?: number
+  aiPaused?: boolean
   phase: Phase
   homes: Partial<Record<Color, Home>>
   edges: [string, Mirror][]
@@ -629,6 +722,9 @@ export function serialize(): Snapshot {
     myColor: state.myColor,
     roomCode: state.roomCode,
     players: [...state.players],
+    aiPlayers: [...state.aiPlayers],
+    aiBudgetMs: state.aiBudgetMs,
+    aiPaused: state.aiPaused,
     phase: state.phase,
     homes: { ...state.homes },
     edges: [...state.edges],
@@ -657,6 +753,7 @@ export function serialize(): Snapshot {
  * 被对方的覆盖后，本机刷新时 URL 与存档会对不上，无法恢复）。
  */
 export function applySnapshot(s: Snapshot, preserveIdentity = false) {
+  state.positionRevision++
   if (!preserveIdentity) {
     state.mode = s.mode
     state.myColor = s.myColor
@@ -664,6 +761,9 @@ export function applySnapshot(s: Snapshot, preserveIdentity = false) {
     state.sessionId = s.sessionId ?? ''
   }
   state.players = s.players?.length ? s.players : seatColors(2)
+  setAiPlayers(s.aiPlayers ?? [])
+  state.aiBudgetMs = [3000, 10000, 30000].includes(s.aiBudgetMs ?? 0) ? s.aiBudgetMs! : 10000
+  state.aiPaused = s.aiPaused ?? false
   state.phase = s.phase
   // homes/edges/diags 被 board 引用，必须原地修改
   for (const c of Object.keys(state.homes) as Color[]) delete state.homes[c]
@@ -678,7 +778,7 @@ export function applySnapshot(s: Snapshot, preserveIdentity = false) {
   state.dead = s.dead?.length ? [...s.dead] : []
   state.laserAllowed = s.laserAllowed
   state.allowUndo = s.allowUndo ?? false
-  state.boundaryReflects = s.boundaryReflects ?? false
+  state.boundaryReflects = state.aiPlayers.length > 0 || (s.boundaryReflects ?? false)
   state.clockSettings = s.clockSettings ? normalizeClockSettings(s.clockSettings) : { ...defaultClockSettings(), enabled: false }
   state.timedOut = [...(s.timedOut ?? [])]
   if (s.clock) applyClockSync(s.clock, true)
@@ -692,6 +792,9 @@ export function applySnapshot(s: Snapshot, preserveIdentity = false) {
 }
 
 const SAVE_KEY = 'light-chess:save'
+let gamePersistenceEnabled = true
+/** Dedicated test sessions have their own durable event archive. */
+export function setGamePersistenceEnabled(enabled: boolean) { gamePersistenceEnabled = enabled }
 
 /** 可用的 Web Storage（Node 测试环境没有这两个全局量，返回空数组整体跳过持久化） */
 const storages = (): Storage[] => {
@@ -721,7 +824,7 @@ export function loadSave(): Snapshot | null {
 }
 
 export function persistGame() {
-  if (state.phase === 'lobby') return
+  if (!gamePersistenceEnabled || state.phase === 'lobby') return
   for (const store of storages()) {
     try { store.setItem(SAVE_KEY, JSON.stringify(serialize())) } catch { /* 忽略存储不可用 */ }
   }

@@ -1,0 +1,162 @@
+// Self-contained mixed-seat UI/network checks. A controlled Worker isolates orchestration from engine strength.
+import assert from 'node:assert/strict'
+import { chromium } from 'playwright'
+import { createServer } from 'vite'
+import aedes from 'aedes'
+import { WebSocketServer, createWebSocketStream } from 'ws'
+
+const broker = aedes()
+const relay = new WebSocketServer({ port: 0 })
+relay.on('connection', socket => broker.handle(createWebSocketStream(socket)))
+await new Promise(resolve => relay.once('listening', resolve))
+const vite = await createServer({ cacheDir: 'node_modules/.vite-ai-mode-check', server: { host: '127.0.0.1', port: 0, hmr: false } })
+await vite.listen()
+const base = `http://127.0.0.1:${vite.httpServer.address().port}`
+const browser = await chromium.launch()
+const errors = []
+try {
+  const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } })
+  await context.addInitScript(relayUrl => {
+    localStorage.setItem('light-chess:mqtt-relays', relayUrl)
+    const OriginalWorker = window.Worker
+    window.__aiRequests = []
+    window.__aiDelay = 150
+    window.__aiError = false
+    window.Worker = class {
+      constructor(url, options) {
+        if (!String(url).includes('/ai/worker.ts')) return new OriginalWorker(url, options)
+      }
+      postMessage(request) {
+        window.__aiRequests.push(request)
+        this.timer = setTimeout(() => {
+          const homes = [{ x: 2, y: 2, dir: 0 }, { x: 10, y: 8, dir: 2 }, { x: 5, y: 12, dir: 3 }, { x: 13, y: 4, dir: 1 }]
+          const action = request.phase === 'setup'
+            ? { kind: 'setup', home: homes[request.current] }
+            : { kind: 'edge', id: 'h:12:14' }
+          this.onmessage?.({ data: window.__aiError ? { action: null, error: '测试引擎失败' } : { action, stats: { nodes: 42, depth: 2, elapsedMs: 125, score: 10, mode: 'attack', candidates: 4, plans: 2, stopReason: 'stable', reason: '连接己方光路，同时限制对手转向。' } } })
+        }, window.__aiDelay)
+      }
+      terminate() { clearTimeout(this.timer) }
+    }
+  }, `ws://127.0.0.1:${relay.address().port}`)
+  const host = await context.newPage()
+  const guest = await context.newPage()
+  for (const page of [host, guest]) page.on('pageerror', error => errors.push(error.message))
+  const status = (page, text) => page.locator('.status-note').filter({ hasText: text }).waitFor({ timeout: 15000 })
+  const dispatch = (page, action) => page.evaluate(async action => (await import('/src/store.ts')).dispatch(action), action)
+  const saved = page => page.evaluate(async () => (await import('/src/store.ts')).serialize())
+
+  await host.goto(base)
+  await host.getByRole('button', { name: '创建房间', exact: false }).click()
+  await host.getByRole('button', { name: '3 人', exact: true }).click()
+  await host.getByLabel('黄方控制方式').selectOption('ai')
+  await host.getByLabel('AI 每步思考上限').selectOption('3000')
+  assert(await host.getByLabel('边界反射', { exact: true }).isDisabled())
+  await host.getByRole('spinbutton').last().fill('16')
+  await host.getByRole('spinbutton').last().dispatchEvent('change')
+  await host.getByRole('button', { name: '创建并等待' }).click()
+  await host.locator('.room-code').waitFor()
+  const code = (await host.locator('.room-code').innerText()).trim()
+  assert((await host.locator('.waiting').innerText()).includes('2/3'))
+  await guest.goto(`${base}/?join=${code}`)
+  await host.locator('svg.board-svg').waitFor({ timeout: 15000 })
+  await guest.locator('svg.board-svg').waitFor({ timeout: 15000 })
+  assert((await guest.locator('.meta-note').innerText()).includes('你执红方'))
+  assert.deepEqual((await saved(guest)).aiPlayers, ['yellow'])
+  assert.equal((await saved(guest)).aiBudgetMs, 3000)
+  await dispatch(host, { kind: 'setup', color: 'blue', home: { x: 2, y: 2, dir: 0 } })
+  await dispatch(guest, { kind: 'setup', color: 'red', home: { x: 10, y: 8, dir: 2 } })
+  await status(host, '你的回合')
+  assert.equal(await host.evaluate(() => __aiRequests.length), 1)
+  assert.equal(await guest.evaluate(() => __aiRequests.length), 0)
+  assert((await saved(guest)).homes.yellow)
+  assert.equal(await host.locator('.ai-analysis').count(), 0, '自动选家不是上一手落子说明')
+  assert((await host.locator('.meta-note').innerText()).includes('每步最多 3 秒'))
+  console.log('ok: mixed online seats start with two humans; host chooses AI home and synchronizes settings')
+
+  await dispatch(host, { kind: 'undo-setting', color: 'blue', allow: true, floor: 0 })
+  await host.evaluate(() => { __aiDelay = 500 })
+  await dispatch(host, { kind: 'edge', color: 'blue', id: 'h:13:14' })
+  await status(guest, '你的回合')
+  await dispatch(guest, { kind: 'edge', color: 'red', id: 'h:14:14' })
+  await status(host, '黄方 AI 正在思考')
+  await dispatch(guest, { kind: 'edge', color: 'yellow', id: 'h:11:14' })
+  await status(host, '你的回合')
+  await guest.waitForFunction(() => JSON.parse(sessionStorage.getItem('light-chess:save')).current === 'blue')
+  const hostSave = await saved(host), guestSave = await saved(guest)
+  assert.deepEqual(hostSave.edges, guestSave.edges)
+  assert(!hostSave.edges.some(([id]) => id === 'h:11:14'))
+  assert.equal(hostSave.edges.find(([id]) => id === 'h:12:14')[1].color, 'yellow')
+  const explanation = await host.getByLabel('AI 上一步说明').innerText()
+  assert(explanation.includes('思考 125 毫秒'))
+  assert(explanation.includes('连接己方光路，同时限制对手转向。'))
+  assert.equal(await guest.getByLabel('AI 上一步说明').innerText(), explanation)
+  console.log('ok: only host runs AI; action and matching explanation/actual time replicate exactly once')
+
+  await host.evaluate(() => { __aiDelay = 1200 })
+  await host.getByRole('button', { name: '撤回一步' }).click()
+  await status(host, 'AI 已暂停')
+  await status(guest, 'AI 已暂停')
+  assert.equal(await host.locator('.ai-analysis').count(), 0)
+  assert.equal(await guest.locator('.ai-analysis').count(), 0)
+  const pausedHost = await saved(host), pausedGuest = await saved(guest)
+  assert.equal(pausedHost.current, 'yellow')
+  assert.equal(pausedHost.clock.runningSince, null)
+  assert.equal(pausedGuest.clock.runningSince, null)
+  const pausedTime = pausedHost.clock.remaining.yellow
+  await host.waitForTimeout(300)
+  assert.equal((await saved(host)).clock.remaining.yellow, pausedTime)
+  await dispatch(guest, { kind: 'ai-resume', color: 'red' })
+  assert.equal((await saved(guest)).aiPaused, true)
+  await host.getByRole('button', { name: '恢复 AI 思考' }).click()
+  await status(guest, '黄方 AI 正在思考')
+  const resumedGuest = await saved(guest)
+  assert.equal(resumedGuest.aiPaused, false)
+  assert.equal(resumedGuest.current, 'yellow', '客人在 AI 新落子之前收到恢复动作')
+  assert.equal(resumedGuest.clock.turn, pausedGuest.clock.turn)
+  assert.notEqual(resumedGuest.clock.runningSince, null)
+  await status(host, '你的回合')
+  await guest.waitForFunction(() => JSON.parse(sessionStorage.getItem('light-chess:save')).current === 'blue')
+  console.log('ok: AI undo pauses both clocks; host resume reaches guest before next AI move and keeps turn identity')
+
+  await guest.reload()
+  await status(guest, '等待蓝方')
+  assert.equal(await guest.evaluate(() => __aiRequests.length), 0)
+  assert.deepEqual((await saved(guest)).aiPlayers, ['yellow'])
+  await host.reload()
+  await status(host, '你的回合')
+  assert.deepEqual((await saved(host)).aiPlayers, ['yellow'])
+  assert.equal(await host.getByLabel('AI 上一步说明').innerText(), explanation)
+  assert.equal(await guest.getByLabel('AI 上一步说明').innerText(), explanation)
+  console.log('ok: guest and host reload preserve AI seats and restore room ownership')
+
+  await host.getByRole('button', { name: '回到大厅' }).click()
+  await host.getByRole('button', { name: '挑战 AI', exact: false }).click()
+  assert.equal(await host.getByLabel('红方控制方式').inputValue(), 'ai')
+  await host.getByRole('button', { name: '开始对局' }).click()
+  await host.evaluate(() => { __aiError = true })
+  await dispatch(host, { kind: 'setup', color: 'blue', home: { x: 2, y: 2, dir: 0 } })
+  await host.getByRole('alert').filter({ hasText: '测试引擎失败' }).waitFor()
+  await host.evaluate(() => { __aiError = false })
+  await host.getByRole('button', { name: '重试 AI' }).click()
+  await status(host, '蓝方回合')
+  await host.evaluate(() => { __aiDelay = 5000 })
+  await dispatch(host, { kind: 'edge', color: 'blue', id: 'h:13:14' })
+  await status(host, '红方 AI 正在思考')
+  await host.getByRole('button', { name: '撤回一步' }).click()
+  assert.equal((await saved(host)).current, 'blue')
+  assert.equal((await saved(host)).aiPaused, true)
+  await host.getByRole('button', { name: '重新开始' }).click()
+  assert.equal((await saved(host)).phase, 'setup')
+  assert.equal(await host.locator('.ai-analysis').count(), 0)
+  assert.deepEqual((await saved(host)).aiPlayers, ['red'])
+  assert.deepEqual(errors, [])
+  console.log('ok: challenge entry, visible failure/retry, undo and restart during AI thinking')
+} finally {
+  await browser.close()
+  await vite.close()
+  for (const client of relay.clients) client.terminate()
+  await new Promise(resolve => relay.close(resolve))
+  await new Promise(resolve => broker.close(resolve))
+}
+console.log('AI mode UI/network checks passed')

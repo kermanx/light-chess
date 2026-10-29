@@ -22,9 +22,23 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - name: Install Rust and WASM target
+        run: rustup show
       - run: npm ci
+      - run: npm run test:ai
       - run: npm run build
-      - run: npx playwright install --with-deps chromium
+      - name: Install browser dependencies
+        run: |
+          # The Azure mirror can stall font downloads on hosted runners.
+          for mirror_list in /etc/apt/apt-mirrors*.txt; do
+            [ -f "$mirror_list" ] || continue
+            sudo sed -i 's|http://azure.archive.ubuntu.com/ubuntu|http://archive.ubuntu.com/ubuntu|g' "$mirror_list"
+          done
+          npx playwright install --with-deps chromium
+      - name: Check AI seats and real WASM runtime
+        run: |
+          node scripts/ai-mode-check.mjs
+          node scripts/ai-wasm-browser-check.mjs
       - name: Check multiplayer without WebRTC
         run: node scripts/relay-check.mjs
       - name: Check enclosure rule interactions
