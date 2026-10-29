@@ -164,6 +164,7 @@ console.log('ok: online guests never run AI; host alone controls AI seats')
 
 toLobby()
 startLocal(2, ['red'])
+dispatch({ kind: 'clock-setting', color: 'blue', settings: { enabled: true, initialMs: 10_000, incrementMs: 0 } })
 dispatch({ kind: 'setup', color: 'blue', home: { x: 2, y: 2, dir: 0 } })
 await nextTick()
 latest().answer({ action: { kind: 'setup', home: { x: 10, y: 8, dir: 2 } } })
