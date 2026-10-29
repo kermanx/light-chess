@@ -28,7 +28,7 @@ import {
   type PlyLine,
   type ReviewMove,
 } from '../review'
-import { modelList, refreshCkpts } from '../ai'
+import { modelList, refreshCkpts } from '../review'
 import { state } from '../store'
 
 const S = 28

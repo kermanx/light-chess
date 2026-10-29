@@ -6,8 +6,58 @@
  */
 import { reactive, watch } from 'vue'
 import type { Color, Home, Ori } from './game'
-import { state } from './store'
-import { ai, defaultModelId, modelList, refreshCkpts } from './ai'
+import { isAiPlayer, state } from './store'
+
+// ---------- 远端推理服务的模型目录（仅复盘分析使用；对局 AI 已迁移到本地座位模型） ----------
+
+export interface ModelGen {
+  gen: number
+  id: string
+  eval: number | null
+}
+
+export interface ModelInfo {
+  id: string // run/genN（最新代）
+  run: string
+  gen: number
+  name: string
+  recipe: string
+  size: number | null
+  eval_random: number | null
+  eval_vs_prev: number | null
+  recommended: boolean
+  gens: ModelGen[]
+}
+
+export const reviewService = reactive({
+  baseUrl: localStorage.getItem('light-chess:ai-url') || 'http://10.176.52.133:8931',
+})
+
+export const modelList = reactive<{ list: ModelInfo[]; error: string; loaded: boolean }>({
+  list: [],
+  error: '',
+  loaded: false,
+})
+
+export async function refreshCkpts() {
+  localStorage.setItem('light-chess:ai-url', reviewService.baseUrl)
+  modelList.error = ''
+  try {
+    const r = await fetch(`${reviewService.baseUrl}/api/models`)
+    if (!r.ok) throw new Error(`HTTP ${r.status}`)
+    modelList.list = ((await r.json()).models as ModelInfo[]) ?? []
+    modelList.loaded = true
+  } catch (e) {
+    modelList.error = (e as Error).message
+    modelList.loaded = false
+  }
+}
+
+/** 指定尺寸下的推荐模型 id（无推荐则取 eval 最高者） */
+export function defaultModelId(size: number): string {
+  const list = modelList.list.filter((m) => m.size === size || (m.size === null && size === 6))
+  return (list.find((m) => m.recommended) ?? list[0])?.id ?? ''
+}
 
 export type ReviewMove = { kind: 'edge'; id: string } | { kind: 'diag'; x: number; y: number; ori: Ori }
 
@@ -118,7 +168,7 @@ export async function runAnalysis() {
   review.cursor = 0
   review.expandedRuns = []
   try {
-    const r = await fetch(`${ai.baseUrl}/api/analyze`, {
+    const r = await fetch(`${reviewService.baseUrl}/api/analyze`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       signal: ac.signal,
@@ -176,8 +226,9 @@ export function openReview() {
   )
   review.active = true
   review.playing = true
-  // 视角默认按对局来源推断：人机局站人所在方，AI vs AI 与人人本地局旁观
-  review.perspective = ai.mode === 'human' ? ai.humanColor : 'spec'
+  // 视角默认按对局来源推断：双人局恰有一个 AI 座位时站人类一方，否则旁观
+  const humanSeats = state.players.filter((c) => !isAiPlayer(c))
+  review.perspective = state.players.length === 2 && humanSeats.length === 1 ? humanSeats[0] : 'spec'
   if (!modelList.loaded && !modelList.error) void refreshCkpts()
   const sized = modelList.list.filter((m) => m.size === review.size)
   const fit = (id: string) => sized.some((m) => m.id === id || m.gens.some((g) => g.id === id))

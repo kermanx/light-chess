@@ -1,15 +1,14 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { MAX_PLAYERS, MIN_PLAYERS, PALETTE, type Color } from '../game'
 import { announceRoom, watchRooms, type PublicRoom } from '../directory'
 import { isValidCode, netClose, netCreate, netJoin, signaling, type Signaling } from '../net'
-import { SIZE_MAX, SIZE_MIN, startLocal, state } from '../store'
-import { ai, defaultModelId, modelList, refreshCkpts, startAiGame, type ModelInfo } from '../ai'
+import { SIZE_MAX, SIZE_MIN, startLocal, state, type AiEngineSpec } from '../store'
+import { loadNnModels, nnModelsForSize, type NnModelInfo } from '../nn/models'
 import ClockSettings from '../components/ClockSettings.vue'
-import ModelCard from '../components/ModelCard.vue'
 
 const view = ref<'menu' | 'configure' | 'created' | 'join'>('menu')
-const preparing = ref<'local' | 'online' | 'ai-human' | 'aivai'>('local')
+const preparing = ref<'local' | 'online'>('local')
 const code = ref('')
 const joinCode = ref('')
 const error = ref('')
@@ -27,6 +26,28 @@ function changeSeat(color: Color, event: Event) {
   const ai = (event.target as HTMLSelectElement).value === 'ai'
   aiSeats.value = ai ? [...aiSeats.value.filter(c => c !== color), color] : aiSeats.value.filter(c => c !== color)
 }
+
+// ---------- AI 座位引擎（内置 WASM 引擎 / 本地 NN 模型） ----------
+/** 本地 NN 模型目录（public/models/models.json） */
+const nnModels = ref<NnModelInfo[]>([])
+onMounted(() => { loadNnModels().then(l => (nnModels.value = l)).catch(() => { /* 目录不可用时只提供内置引擎 */ }) })
+/** 当前棋盘尺寸可用的 NN 模型 */
+const sizeModels = computed(() => nnModelsForSize(nnModels.value, state.size))
+/** 每个 AI 座位的引擎选择：'wasm' 或 models.json 里的模型 id */
+const seatEngine = reactive<Record<string, string>>({})
+/** NN 座位的「随机」开关：开启后按温度 0.5 采样，否则 argmax */
+const seatStochastic = reactive<Record<string, boolean>>({})
+const aiEngineSpecs = computed(() => {
+  const out: Partial<Record<Color, AiEngineSpec>> = {}
+  for (const c of selectedAi.value) {
+    const model = sizeModels.value.find((m) => m.id === seatEngine[c])
+    out[c] = model ? { kind: 'nn', modelId: model.id, stochastic: !!seatStochastic[c] } : { kind: 'wasm' }
+  }
+  return out
+})
+const hasNnSeat = computed(() => Object.values(aiEngineSpecs.value).some((s) => s?.kind === 'nn'))
+/** NN 模型只支持边界反射棋盘（与 WASM 引擎一致；有 AI 座位时边界反射会被强制开启） */
+const nnBlocked = computed(() => hasNnSeat.value && !state.boundaryReflects)
 function challengeAi() {
   count.value = 2
   aiSeats.value = ['red']
@@ -71,59 +92,13 @@ function clampSize(e: Event) {
 }
 
 function local() {
-  startLocal(count.value, selectedAi.value)
+  startLocal(count.value, selectedAi.value, aiEngineSpecs.value)
 }
 
-function prepare(mode: 'local' | 'online' | 'ai-human' | 'aivai') {
+function prepare(mode: 'local' | 'online') {
   preparing.value = mode
   error.value = ''
   view.value = 'configure'
-  if (mode === 'ai-human' || mode === 'aivai') void refreshCkpts()
-}
-
-// ---------- AI 对战配置 ----------
-const aiSize = ref(6)
-/** 两侧各自选中的模型 id（run/genN）；human 模式只用 blueSel 作为 AI 方 */
-const blueSel = ref('')
-const redSel = ref('')
-
-/** 模型按棋盘尺寸分组展示（大棋盘在前） */
-const modelsBySize = computed(() => {
-  const groups = new Map<number, ModelInfo[]>()
-  for (const m of modelList.list) {
-    const s = m.size ?? 6
-    if (!groups.has(s)) groups.set(s, [])
-    groups.get(s)!.push(m)
-  }
-  return [...groups.entries()].sort((a, b) => b[0] - a[0])
-})
-
-const modelOfId = (id: string) =>
-  modelList.list.find((m) => m.gens.some((g) => g.id === id))
-
-/** 选中一张卡：该侧换模型，棋盘尺寸跟随卡片的 size；另一侧若尺寸不符则重置为该尺寸推荐 */
-function pick(side: 'blue' | 'red', id: string) {
-  const m = modelOfId(id)
-  if (!m) return
-  if (side === 'blue') blueSel.value = id
-  else redSel.value = id
-  aiSize.value = m.size ?? 6
-  const other = side === 'blue' ? redSel : blueSel
-  if (modelOfId(other.value)?.size !== m.size) other.value = defaultModelId(aiSize.value)
-}
-
-/** 模型列表刷新后兜底默认选中推荐模型 */
-watch(modelsBySize, () => {
-  if (!modelOfId(blueSel.value)) blueSel.value = defaultModelId(aiSize.value)
-  if (!modelOfId(redSel.value) || modelOfId(redSel.value)?.size !== modelOfId(blueSel.value)?.size)
-    redSel.value = modelList.list.find((m) => m.size === aiSize.value && !m.recommended)?.id ??
-      defaultModelId(aiSize.value)
-})
-
-function startAi() {
-  ai.ckpts.blue = blueSel.value
-  ai.ckpts.red = redSel.value || blueSel.value
-  startAiGame(preparing.value === 'aivai' ? 'aivai' : 'human', aiSize.value)
 }
 
 // ---------- 公开房间：广播与监听的生命周期 ----------
@@ -181,7 +156,7 @@ async function create() {
   busy.value = true
   error.value = ''
   try {
-    code.value = await netCreate(count.value, sig.value, selectedAi.value)
+    code.value = await netCreate(count.value, sig.value, selectedAi.value, aiEngineSpecs.value)
     if (state.phase !== 'lobby') return
     view.value = 'created'
     void syncAnnounce()
@@ -199,7 +174,7 @@ async function onSigChange(e: Event) {
   busy.value = true
   error.value = ''
   try {
-    code.value = await netCreate(count.value, sig.value, selectedAi.value)
+    code.value = await netCreate(count.value, sig.value, selectedAi.value, aiEngineSpecs.value)
     void syncAnnounce()
   } catch (err) {
     error.value = (err as Error).message
@@ -267,74 +242,6 @@ onMounted(() => {
           <span class="card-title">加入房间</span>
           <span class="card-desc">输入房间号入座</span>
         </button>
-        <button class="card" @click="prepare('ai-human')">
-          <span class="card-title">人机对战</span>
-          <span class="card-desc">挑战训练出的 AI</span>
-        </button>
-        <button class="card" @click="prepare('aivai')">
-          <span class="card-title">AI 对战</span>
-          <span class="card-desc">两个模型互下，观战对比</span>
-        </button>
-      </div>
-    </div>
-
-    <div v-else-if="view === 'configure' && (preparing === 'ai-human' || preparing === 'aivai')" class="panel">
-      <div class="panel-head">
-        <h2 class="panel-title">{{ preparing === 'aivai' ? 'AI 对战' : '人机对战' }}</h2>
-        <p class="panel-label">推理服务运行在远端 CPU 集群</p>
-      </div>
-      <fieldset class="prepare-settings">
-        <label class="laser-opt">
-          服务地址
-          <input class="size-input" style="width: 220px; text-align: left" v-model="ai.baseUrl" @change="refreshCkpts" />
-          <button class="btn-plain" style="padding: 2px 10px; font-size: 13px" @click="refreshCkpts">刷新模型</button>
-        </label>
-        <label v-if="preparing === 'ai-human'" class="laser-opt">
-          你执
-          <select class="sig-select" v-model="ai.humanColor">
-            <option value="blue">蓝（先手）</option>
-            <option value="red">红（后手）</option>
-          </select>
-        </label>
-        <div class="model-section">
-          <p class="model-section-title">
-            {{ preparing === 'aivai' ? '蓝方模型' : 'AI 模型' }}（点卡片即选定棋盘尺寸，当前 {{ aiSize }}×{{ aiSize }}）
-          </p>
-          <div v-for="[size, models] in modelsBySize" :key="size" class="model-group">
-            <p class="model-group-title">{{ size }}×{{ size }}</p>
-            <div class="model-grid">
-              <ModelCard
-                v-for="m in models"
-                :key="m.run"
-                :model="m"
-                :selected-id="blueSel"
-                @select="pick('blue', $event)"
-              />
-            </div>
-          </div>
-        </div>
-        <div v-if="preparing === 'aivai'" class="model-section">
-          <p class="model-section-title">红方模型（需与蓝方同尺寸）</p>
-          <div class="model-grid">
-            <ModelCard
-              v-for="m in modelsBySize.find(([s]) => s === aiSize)?.[1] ?? []"
-              :key="m.run"
-              :model="m"
-              :selected-id="redSel"
-              @select="pick('red', $event)"
-            />
-          </div>
-        </div>
-        <label class="laser-opt">
-          思考强度（MCTS sims）
-          <input class="size-input" type="number" :min="10" :max="2000" v-model.number="ai.sims" />
-        </label>
-        <p v-if="modelList.error" class="error" style="margin: 0">连不上推理服务：{{ modelList.error }}</p>
-        <p v-else-if="!modelList.loaded" class="panel-label">正在获取模型列表…</p>
-      </fieldset>
-      <div class="row">
-        <button class="btn-primary" :disabled="!blueSel" @click="startAi">开始对局</button>
-        <button class="btn-plain" @click="cancel">返回</button>
       </div>
     </div>
 
@@ -359,24 +266,44 @@ onMounted(() => {
           </button>
         </div>
         <div class="seat-settings" aria-label="玩家座位">
-          <label v-for="p in configuredSeats" :key="p.id" class="seat-row">
+          <div v-for="p in configuredSeats" :key="p.id" class="seat-row">
             <span :style="{ color: p.hex }">{{ p.name }}方{{ preparing === 'online' && p.id === 'blue' ? '（房主）' : '' }}</span>
-            <select class="sig-select" :aria-label="`${p.name}方控制方式`" :value="selectedAi.includes(p.id) ? 'ai' : 'human'"
-              :disabled="preparing === 'online' && p.id === 'blue'" @change="changeSeat(p.id, $event)">
-              <option value="human">{{ preparing === 'online' ? '真人玩家' : '人类' }}</option>
-              <option value="ai">AI</option>
-            </select>
-          </label>
+            <span class="seat-ctls">
+              <select class="sig-select" :aria-label="`${p.name}方控制方式`" :value="selectedAi.includes(p.id) ? 'ai' : 'human'"
+                :disabled="preparing === 'online' && p.id === 'blue'" @change="changeSeat(p.id, $event)">
+                <option value="human">{{ preparing === 'online' ? '真人玩家' : '人类' }}</option>
+                <option value="ai">AI</option>
+              </select>
+              <template v-if="selectedAi.includes(p.id)">
+                <select v-model="seatEngine[p.id]" class="sig-select" :aria-label="`${p.name}方 AI 引擎`">
+                  <option value="wasm">内置引擎</option>
+                  <option v-for="m in sizeModels" :key="m.id" :value="m.id">
+                    {{ m.name }} · Elo {{ m.elo }}{{ m.recommended ? ' · 推荐' : '' }}
+                  </option>
+                </select>
+                <label v-if="sizeModels.some((m) => m.id === seatEngine[p.id])" class="laser-opt seat-stochastic">
+                  <input type="checkbox" v-model="seatStochastic[p.id]" />
+                  随机
+                </label>
+              </template>
+            </span>
+          </div>
         </div>
         <label v-if="hasAi" class="laser-opt">
-          AI 每步最多思考
+          内置引擎每步最多思考
           <select v-model.number="state.aiBudgetMs" class="sig-select" aria-label="AI 每步思考上限">
             <option :value="3000">3 秒</option>
             <option :value="10000">10 秒</option>
             <option :value="30000">30 秒（棋力优先）</option>
           </select>
         </label>
-        <p v-if="hasAi" class="ai-hint">AI 可提前落子，自动布置基地，需要边界反射。联机 AI 由房主运行，不占真人连接。</p>
+        <p v-if="!sizeModels.length && nnModels.length" class="ai-hint">
+          NN 模型只支持 {{ [...new Set(nnModels.map((m) => m.boardSize))].join('、') }}× 棋盘：把下方棋盘尺寸改为
+          <button class="btn-plain size-chip" v-for="s in [...new Set(nnModels.map((m) => m.boardSize))]" :key="s" @click="state.size = s">{{ s }}×{{ s }}</button>
+          即可为 AI 座位选择神经网络模型。
+        </p>
+        <p v-if="nnBlocked" class="error" style="margin: 0">NN 模型需要开启边界反射（与内置引擎一致）。</p>
+        <p v-if="hasAi" class="ai-hint">AI 可提前落子，自动布置基地，需要边界反射。联机 AI 由房主运行，不占真人连接；NN 模型在本机浏览器内推理，无需联网。</p>
         <label class="laser-opt">棋盘
           <input class="size-input" type="number" :min="SIZE_MIN" :max="SIZE_MAX" :value="state.size" @change="clampSize" />
           × {{ state.size }} 格
@@ -392,7 +319,7 @@ onMounted(() => {
         </label>
       </fieldset>
       <div class="row">
-        <button class="btn-primary" :disabled="busy" @click="preparing === 'local' ? local() : create()">
+        <button class="btn-primary" :disabled="busy || nnBlocked" @click="preparing === 'local' ? local() : create()">
           {{ preparing === 'local' ? '开始对局' : busy ? '正在创建…' : '创建并等待' }}
         </button>
         <button class="btn-plain" :disabled="busy" @click="cancel">返回</button>
@@ -512,6 +439,9 @@ onMounted(() => {
 <style scoped>
 .seat-settings { display: flex; flex-direction: column; gap: 10px; }
 .seat-row { display: flex; align-items: center; justify-content: space-between; gap: 18px; font-size: 14px; }
+.seat-ctls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.seat-stochastic { font-size: 13px; white-space: nowrap; }
+.size-chip { padding: 1px 8px; font-size: 12px; }
 .ai-hint { margin: 0; font-size: 12px; color: #8a7f68; line-height: 1.6; }
 
 .lobby {

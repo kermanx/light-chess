@@ -43,8 +43,8 @@ import {
   wouldEnclose,
   wouldEncloseDiag,
 } from '../store'
-// TODO(integration): 旧 src/ai.ts 座位模型（aivai/暂停/复盘入口）已按 upstream 座位模型摘除 UI，此处仅保留 showAllLasers/remindWait 尚引用的 ai；整合时随 src/ai.ts 一起重做
-import { ai, humanTurn } from '../ai'
+import { aiEngineFor } from '../store'
+import { loadNnModels, type NnModelInfo } from '../nn/models'
 import { openReview } from '../review'
 
 const S = 28 // 格距（px）
@@ -225,7 +225,7 @@ function exitMove(ev: MouseEvent) {
 }
 
 function exitClick(ev: MouseEvent) {
-  if (!canAct.value || !humanTurn()) return
+  if (!canAct.value) return
   const h = pendingHome.value
   const dir = dirFromEvent(ev)
   if (!h || dir === null || !isValidHomeSetup({ ...h, dir }, setupColor.value)) return
@@ -277,7 +277,7 @@ const exitPreview = computed(() =>
 
 // ---------- 交互 ----------
 function cellClick(x: number, y: number, backslash: boolean) {
-  if (!canAct.value || !humanTurn()) {
+  if (!canAct.value) {
     remindWait()
     return
   }
@@ -298,7 +298,7 @@ function cellClick(x: number, y: number, backslash: boolean) {
 }
 
 function edgeClick(id: string) {
-  if (!canAct.value || !humanTurn()) {
+  if (!canAct.value) {
     remindWait()
     return
   }
@@ -390,7 +390,7 @@ const nudge = ref(0)
 /** 对方回合点击棋盘：状态栏描边脉冲提醒「还没轮到你」 */
 function remindWait() {
   if (state.phase !== 'play' || state.peerLeft) return
-  if (state.mode !== 'online' && !ai.mode) return
+  if (state.mode !== 'online' && !isAiPlayer(state.current)) return
   nudge.value++
 }
 
@@ -421,12 +421,39 @@ const hoverHomeColor = computed<Color | null>(() => {
   return null
 })
 const showPath = computed(() => replayVisible.value ? null : hoverHomeColor.value)
-/** AI 对战：全程展示双方光路（含结束后），便于观战 */
-const showAllLasers = computed(() => ai.mode === 'aivai')
+/** AI 对战（所有座位都是 AI）：全程展示双方光路（含结束后），便于观战 */
+const showAllLasers = computed(() =>
+  state.mode === 'local' && state.players.length > 0 && state.players.every((c) => isAiPlayer(c)))
 
 /** 该颜色当前是否展示光路；返回 null 表示不展示或已出局（出局者不再模拟） */
 const laserSim = (c: Color) =>
   showPath.value === c || showAllLasers.value ? sims.value.get(c) ?? null : null
+
+// ---------- AI 座位展示与暂停/继续 ----------
+/** 本地 NN 模型目录（顶栏 AI 标签显示模型名） */
+const nnModels = ref<NnModelInfo[]>([])
+onMounted(() => { loadNnModels().then((l) => (nnModels.value = l)).catch(() => { /* 标签退化为模型 id */ }) })
+const nnModelName = (id: string) => nnModels.value.find((m) => m.id === id)?.name ?? id
+
+/** 顶栏 AI 座位标签：内置引擎显示思考上限，NN 座位显示模型名 */
+const aiSeatLabels = computed(() =>
+  state.aiPlayers.map((c) => {
+    const engine = aiEngineFor(c)
+    const text = engine.kind === 'nn'
+      ? `${name(c)} AI · ${nnModelName(engine.modelId)}${engine.stochastic ? ' · 随机' : ''}`
+      : `${name(c)} AI · 每步最多 ${(engine.budgetMs ?? state.aiBudgetMs) / 1000} 秒`
+    return { color: c, text }
+  }),
+)
+
+/** 暂停/继续 AI：暂停直接置位（本地/房主权威），继续走 upstream ai-resume 动作（联机可广播） */
+const aiPauseVisible = computed(
+  () => !aiTest.active && state.aiPlayers.length > 0 && aiAuthority() && state.phase === 'play',
+)
+function toggleAiPause() {
+  if (state.aiPaused) dispatch({ kind: 'ai-resume', color: hostColor.value })
+  else state.aiPaused = true
+}
 
 /** 有向光路段（传播方向箭头用；与 sims 同一批存活玩家） */
 const dsims = computed(() => {
@@ -527,7 +554,6 @@ const ghostHome = computed(() => {
   const c = hoverCell.value
   if (
     !canAct.value ||
-    !humanTurn() ||
     state.phase !== 'setup' ||
     pendingHome.value ||
     !c ||
@@ -889,7 +915,7 @@ const statusText = computed(() => {
         <span v-if="state.mode === 'online'" class="room">
           房间 {{ state.roomCode }} · 你执{{ name(state.myColor!) }}
         </span>
-        <span v-for="c in state.aiPlayers" :key="`ai-${c}`" class="room" :style="{ color: COLORS[c] }">{{ name(c) }} AI · 每步最多 {{ state.aiBudgetMs / 1000 }} 秒</span>
+        <span v-for="s in aiSeatLabels" :key="`ai-${s.color}`" class="room" :style="{ color: COLORS[s.color] }">{{ s.text }}</span>
         <span
           v-for="c in state.players.filter((c) => state.dead.includes(c))"
           :key="`dead-${c}`"
@@ -924,13 +950,10 @@ const statusText = computed(() => {
       <div v-if="undoAvailable || isHostSide" class="btn-row">
         <button v-if="undoAvailable" class="btn-plain" :disabled="!canUndoNow" @click="undo">撤回一步</button>
         <button v-if="isHostSide && !aiTest.active" class="btn-plain" @click="restart">重新开始</button>
-        <!-- TODO(integration): 恢复我们特有的 aivai 控制与复盘入口（依赖旧 src/ai.ts 座位模型，待按 upstream 座位模型重做）
-        <button v-if="ai.mode === 'aivai'" class="btn-plain" @click="togglePause">
-          {{ ai.paused ? '继续' : '暂停' }}
+        <button v-if="aiPauseVisible" class="btn-plain" @click="toggleAiPause">
+          {{ state.aiPaused ? '继续 AI' : '暂停 AI' }}
         </button>
-        <button v-if="ai.mode && ai.error" class="btn-plain" @click="retryAi">重试 AI</button>
         <button v-if="state.phase === 'over' && state.mode === 'local'" class="btn-plain" @click="openReview()">复盘分析</button>
-        -->
       </div>
       <button class="btn-plain" @click="leaveGame">回到大厅</button>
     </div>

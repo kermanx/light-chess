@@ -1,8 +1,10 @@
 import { computed, reactive, ref, watch } from 'vue'
-import { aiAuthority, board, dispatch, dispatchAi, isAiPlayer, remainingTime, state } from '../store'
+import { aiAuthority, aiEngineFor, board, dispatch, dispatchAi, isAiPlayer, remainingTime, state } from '../store'
 import type { Color } from '../game'
 import { isAiAction, makeAiRequest, toAiMoveAnalysis, type AiResponse, type AiStats } from './protocol'
 import { emitAiSearch, type AiSearchEvent } from './telemetry'
+import { MODELS_BASE } from '../nn/models'
+import type { NnWorkerMessage } from './nn-worker'
 
 export const aiStatus = reactive({
   status: 'idle' as 'idle' | 'thinking' | 'error',
@@ -31,6 +33,19 @@ export function startAiController(createWorker: () => Worker = () =>
   let timeout: ReturnType<typeof setTimeout> | null = null
   let generation = 0
   let search: { searchId: string; gameId: string; revision: number } | null = null
+  /**
+   * NN worker 池（key = modelId|stochastic）：NN 推理是异步的，迟到响应由代际号丢弃，
+   * 不必像 WASM 那样 terminate；复用 worker 让 onnx session 缓存生效，避免每手重载权重。
+   */
+  const nnWorkers = new Map<string, Worker>()
+  const acquireNnWorker = (key: string): Worker => {
+    let w = nnWorkers.get(key)
+    if (!w) {
+      w = new Worker(new URL('./nn-worker.ts', import.meta.url), { type: 'module' })
+      nnWorkers.set(key, w)
+    }
+    return w
+  }
   const report = (type: AiSearchEvent['type'], detail: unknown) => {
     if (search) emitAiSearch({ ...search, type, detail })
   }
@@ -46,7 +61,7 @@ export function startAiController(createWorker: () => Worker = () =>
   const stop = watch(() => [
     state.positionRevision, state.mode, state.myColor, state.phase, state.current,
     state.peerLeft, state.aiPaused, state.boundaryReflects, state.aiBudgetMs,
-    state.aiPlayers.join(','), aiTurnColor.value, retry.value,
+    state.aiPlayers.join(','), JSON.stringify(state.aiEngines), aiTurnColor.value, retry.value,
   ], () => {
     cancel()
     aiStatus.status = 'idle'
@@ -61,7 +76,8 @@ export function startAiController(createWorker: () => Worker = () =>
       aiStatus.error = message
     }
     if (!state.boundaryReflects) return fail('AI 需要开启边界反射')
-    let budgetMs = state.aiBudgetMs
+    const engine = aiEngineFor(color)
+    let budgetMs = engine.kind === 'wasm' && engine.budgetMs ? engine.budgetMs : state.aiBudgetMs
     if (state.phase === 'play' && state.clockSettings.enabled) {
       budgetMs = Math.max(1, Math.min(budgetMs, Math.floor(remainingTime(color, Date.now()) - 200)))
     }
@@ -75,8 +91,10 @@ export function startAiController(createWorker: () => Worker = () =>
     aiStatus.status = 'thinking'
     aiStatus.stats = null
     try {
-      const worker = createWorker()
-      active = worker
+      // NN 座位走池化 worker（active 不持有它，cancel 不会 terminate）；WASM 维持每次新建。
+      const worker = engine.kind === 'nn'
+        ? acquireNnWorker(`${engine.modelId}|${engine.stochastic ? 1 : 0}`)
+        : (active = createWorker())
       worker.onmessage = (event: MessageEvent<AiResponse>) => {
         if (generation !== expected || state.positionRevision !== revision || state.peerLeft ||
           state.aiPaused || !aiAuthority() || aiTurnColor.value !== color) return
@@ -105,11 +123,25 @@ export function startAiController(createWorker: () => Worker = () =>
       }
       timeout = setTimeout(() => {
         if (generation === expected) fail('AI 搜索超时，请重试或缩短思考时间')
-      }, budgetMs + 10_000)
-      worker.postMessage(request)
+      }, (engine.kind === 'nn' ? Math.max(budgetMs, 20_000) : budgetMs) + 10_000)
+      if (engine.kind === 'nn') {
+        const message: NnWorkerMessage = {
+          request,
+          nn: { modelId: engine.modelId, stochastic: engine.stochastic, modelsBase: MODELS_BASE },
+        }
+        worker.postMessage(message)
+      } else {
+        worker.postMessage(request)
+      }
     } catch (error) {
       fail(error instanceof Error ? error.message : String(error))
     }
   }, { immediate: true })
-  return () => { stop(); cancel(); aiStatus.status = 'idle' }
+  return () => {
+    stop()
+    cancel()
+    for (const w of nnWorkers.values()) w.terminate()
+    nnWorkers.clear()
+    aiStatus.status = 'idle'
+  }
 }

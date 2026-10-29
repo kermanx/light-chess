@@ -21,6 +21,16 @@ import {
 
 export type Phase = 'lobby' | 'setup' | 'play' | 'over'
 
+/**
+ * AI 座位的引擎配置。缺省（无记录）= 内置 WASM 引擎，思考上限读全局 aiBudgetMs。
+ * wasm.budgetMs 存在时覆盖全局值（向后兼容：旧存档/旧协议只有全局 aiBudgetMs）。
+ * nn = 本地浏览器 NN 模型（onnxruntime-web，public/models/models.json 里的 modelId），
+ * stochastic 为 true 时按温度 0.5 采样，否则 argmax。
+ */
+export type AiEngineSpec =
+  | { kind: 'wasm'; budgetMs?: number }
+  | { kind: 'nn'; modelId: string; stochastic?: boolean }
+
 export interface VictoryReplay {
   source: Color
   targets: { color: Color; path: Pt[] }[]
@@ -79,6 +89,8 @@ export const state = reactive({
   /** AI 席位不占用联机连接；在线时统一由房主运行。 */
   aiPlayers: [] as Color[],
   aiBudgetMs: 10_000,
+  /** 各 AI 座位的引擎配置（无记录 = 内置 WASM 引擎） */
+  aiEngines: {} as Partial<Record<Color, AiEngineSpec>>,
   /** 撤回后暂停 AI，避免刚撤掉的一步被立即重下。 */
   aiPaused: false,
   positionRevision: 0,
@@ -139,7 +151,37 @@ export const aiAuthority = () => state.mode === 'local' || (state.mode === 'onli
 export function setAiPlayers(colors: Color[]) {
   state.aiPlayers = state.players.filter(c => colors.includes(c) && (state.mode !== 'online' || c !== state.players[0]))
   if (state.aiPlayers.length) state.boundaryReflects = true
+  // 清掉已失效座位的引擎配置
+  for (const c of Object.keys(state.aiEngines) as Color[]) {
+    if (!state.aiPlayers.includes(c)) delete state.aiEngines[c]
+  }
 }
+
+/** 把外部数据（快照/联机消息）里的引擎配置清洗成合法形态；无法识别的座位整体丢弃 */
+export function sanitizeAiEngines(value: unknown): Partial<Record<Color, AiEngineSpec>> {
+  const out: Partial<Record<Color, AiEngineSpec>> = {}
+  if (!value || typeof value !== 'object') return out
+  for (const [color, spec] of Object.entries(value)) {
+    if (!spec || typeof spec !== 'object') continue
+    const s = spec as Record<string, unknown>
+    if (s.kind === 'nn' && typeof s.modelId === 'string' && s.modelId) {
+      out[color as Color] = { kind: 'nn', modelId: s.modelId, ...(s.stochastic ? { stochastic: true } : {}) }
+    } else if (s.kind === 'wasm') {
+      const budgetMs = typeof s.budgetMs === 'number' && [3000, 10000, 30000].includes(s.budgetMs) ? s.budgetMs : undefined
+      out[color as Color] = { kind: 'wasm', ...(budgetMs ? { budgetMs } : {}) }
+    }
+  }
+  return out
+}
+
+/** 设置各 AI 座位的引擎（只保留仍是 AI 的座位） */
+export function setAiEngines(engines: Partial<Record<Color, AiEngineSpec>>) {
+  state.aiEngines = {}
+  for (const c of state.aiPlayers) if (engines[c]) state.aiEngines[c] = engines[c]
+}
+
+/** 某 AI 座位的引擎配置；缺省 = 内置 WASM 引擎（全局思考上限） */
+export const aiEngineFor = (color: Color): AiEngineSpec => state.aiEngines[color] ?? { kind: 'wasm' }
 
 /** 回合顺序中的下一位存活玩家 */
 const nextAlive = (c: Color): Color => {
@@ -277,26 +319,28 @@ function resetBoard() {
 }
 
 /** 进入单机模式 */
-export function startLocal(playerCount = 2, aiPlayers: Color[] = []) {
+export function startLocal(playerCount = 2, aiPlayers: Color[] = [], aiEngines: Partial<Record<Color, AiEngineSpec>> = {}) {
   state.mode = 'local'
   state.myColor = null
   state.roomCode = ''
   state.peerLeft = false
   state.players = seatColors(playerCount)
   setAiPlayers(aiPlayers)
+  setAiEngines(aiEngines)
   state.sessionId = crypto.randomUUID()
   resetBoard()
   pushSessionUrl()
 }
 
 /** 联机模式下所有人到齐，开始布置 */
-export function startOnline(myColor: Color, roomCode: string, players: Color[], aiPlayers: Color[] = []) {
+export function startOnline(myColor: Color, roomCode: string, players: Color[], aiPlayers: Color[] = [], aiEngines: Partial<Record<Color, AiEngineSpec>> = {}) {
   state.mode = 'online'
   state.myColor = myColor
   state.roomCode = roomCode
   state.peerLeft = false
   state.players = players
   setAiPlayers(aiPlayers)
+  setAiEngines(aiEngines)
   state.sessionId = crypto.randomUUID()
   resetBoard()
   pushSessionUrl()
@@ -312,6 +356,7 @@ export function toLobby() {
   state.roomJoined = 0
   state.players = seatColors(2)
   state.aiPlayers = []
+  state.aiEngines = {}
   state.aiPaused = false
   state.phase = 'lobby'
   for (const c of Object.keys(state.homes) as Color[]) delete state.homes[c]
@@ -688,6 +733,8 @@ export interface Snapshot {
   players?: Color[]
   aiPlayers?: Color[]
   aiBudgetMs?: number
+  /** 各 AI 座位引擎配置；缺省视为全部内置 WASM 引擎（向后兼容旧存档） */
+  aiEngines?: Partial<Record<Color, AiEngineSpec>>
   aiPaused?: boolean
   phase: Phase
   homes: Partial<Record<Color, Home>>
@@ -724,6 +771,7 @@ export function serialize(): Snapshot {
     players: [...state.players],
     aiPlayers: [...state.aiPlayers],
     aiBudgetMs: state.aiBudgetMs,
+    aiEngines: { ...state.aiEngines },
     aiPaused: state.aiPaused,
     phase: state.phase,
     homes: { ...state.homes },
@@ -762,6 +810,7 @@ export function applySnapshot(s: Snapshot, preserveIdentity = false) {
   }
   state.players = s.players?.length ? s.players : seatColors(2)
   setAiPlayers(s.aiPlayers ?? [])
+  setAiEngines(sanitizeAiEngines(s.aiEngines))
   state.aiBudgetMs = [3000, 10000, 30000].includes(s.aiBudgetMs ?? 0) ? s.aiBudgetMs! : 10000
   state.aiPaused = s.aiPaused ?? false
   state.phase = s.phase

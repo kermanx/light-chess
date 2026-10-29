@@ -1,0 +1,24 @@
+[
+  {
+    "id": "lightchess-6x6-vitm-gen32",
+    "name": "光镜 6×6 ViT-M gen32",
+    "file": "lightchess_6x6_vitm_pt_dd_gen32.onnx",
+    "dataFile": "lightchess_6x6_vitm_pt_dd_gen32.onnx.data",
+    "boardSize": 6,
+    "featureVersion": "dirlight30-v1",
+    "channels": 30,
+    "elo": 1664,
+    "recommended": true
+  },
+  {
+    "id": "lightchess-8x8-transfer-gen16",
+    "name": "光镜 8×8 迁移 gen16",
+    "file": "lightchess_8x8_transfer_gen16.onnx",
+    "dataFile": "lightchess_8x8_transfer_gen16.onnx.data",
+    "boardSize": 8,
+    "featureVersion": "dirlight30-v1",
+    "channels": 30,
+    "elo": 1629,
+    "recommended": false
+  }
+]
