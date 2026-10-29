@@ -1,6 +1,6 @@
 // Undo pause/resume must preserve the clock and use the host-authoritative action channel.
 import assert from 'node:assert/strict'
-import { retryAi } from '../src/ai/controller'
+import { cancelAi, retryAi } from '../src/ai/controller'
 import {
   applyRemote, applySnapshot, dispatch, dispatchAi, remainingTime, serialize, serializeClock,
   setSender, startLocal, startOnline, state, tickClock, toLobby, topUndoFrame, type Action,
@@ -66,6 +66,22 @@ try {
   assert.equal(state.current, 'red')
   assert.equal(state.clock.runningSince, now)
   console.log('ok: AI-turn undo pauses clock; restore/reconnect preserve it; explicit resume keeps turn/time; human-turn undo keeps clock running')
+
+  now += 200
+  const beforeCancel = left('red')
+  cancelAi()
+  assert.equal(state.aiPaused, true)
+  assert.equal(state.clock.runningSince, null)
+  now += 100000
+  assert.equal(tickClock(now), false)
+  assert.equal(left('red'), beforeCancel)
+  retryAi()
+  assert.equal(left('red'), beforeCancel)
+  now += beforeCancel + 1
+  cancelAi()
+  assert.equal(state.phase, 'over', '取消不能抢在超时结算之前冻结已用完的棋钟')
+  assert.equal(state.aiPaused, false)
+  console.log('ok: explicit cancellation pauses the AI clock, resumes remaining time and cannot prevent an expired timeout')
 
   toLobby()
   state.size = 16

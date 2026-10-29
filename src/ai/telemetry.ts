@@ -1,6 +1,6 @@
 /** Optional local diagnostics. Observers cannot affect game execution. */
 export interface AiSearchEvent {
-  type: 'search-start' | 'search-result' | 'search-cancel' | 'search-error' | 'search-accepted' | 'search-rejected'
+  type: 'search-start' | 'search-progress' | 'search-trajectory' | 'search-result' | 'search-cancel' | 'search-error' | 'search-accepted' | 'search-rejected'
   searchId: string
   gameId: string
   revision: number

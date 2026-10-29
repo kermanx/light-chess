@@ -144,7 +144,7 @@ try {
   console.log('ok: server restart retains archives and deduplicates; malformed paths and cross-origin writes rejected')
 
   await page.getByRole('button', { name: '回到大厅', exact: true }).click()
-  await page.getByRole('button', { name: '挑战 AI', exact: false }).waitFor()
+  await page.getByRole('button', { name: '单机对战', exact: false }).waitFor()
   assert.equal(new URL(page.url()).pathname, '/')
   await page.goBack()
   await page.getByRole('heading', { name: 'AI 测试', exact: true }).waitFor()

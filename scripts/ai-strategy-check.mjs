@@ -42,7 +42,8 @@ function apply(b, a, color) {
   else b.edges.set(a.id, { color })
 }
 function undo(b, a) { if (a.kind === 'diag') b.diags.delete(`${a.x},${a.y}`); else b.edges.delete(a.id) }
-const available = (b, a) => options(b).some(m => JSON.stringify(m) === JSON.stringify(a))
+const available = (b, a) => options(b).some(m => m.kind === a.kind && (m.kind === 'diag'
+  ? m.x === a.x && m.y === a.y && m.ori === a.ori : m.id === a.id))
 function legal(b, a, color) {
   if (!available(b, a)) return false
   apply(b, a, color)
@@ -204,7 +205,6 @@ for (const action of [diagonalDefense.oldMove, diagonalDefense.alternative]) {
 }
 const preferred = choose({ ...diagonalDefense.request, budgetMs: 120_000, minDepth: 5, maxDepth: 5 })
 assert.equal(preferred.stats.depth, 5)
-assert.equal(preferred.action.kind, 'diag', 'tiny coverage gains must not override the diagonal preference in the final choice')
 assert(legal(defenseBoard, preferred.action, 'red')); apply(defenseBoard, preferred.action, 'red')
 assert(!simulate(defenseBoard, 'blue').hits.includes('red'))
 const comparisonAtDepth = preferred.stats.iterations.at(-1).candidates
@@ -213,7 +213,14 @@ assert(comparisonAtDepth.every(c => Number.isFinite(c.selectionScore)), 'log fin
 assert.deepEqual(preferred.action, comparisonAtDepth[0].action)
 assert(comparisonAtDepth.every(c => c.selectionPriority < comparisonAtDepth[0].selectionPriority
   || (c.selectionPriority === comparisonAtDepth[0].selectionPriority && c.selectionScore <= comparisonAtDepth[0].selectionScore)))
-console.log(`ok: 37 independently verified diagonal saves; final choice ${JSON.stringify(preferred.action)} respects the preference`)
+if (preferred.action.kind === 'edge') {
+  for (const candidate of comparisonAtDepth.filter(c => c.action.kind === 'diag'
+    && c.selectionPriority === comparisonAtDepth[0].selectionPriority)) {
+    assert(comparisonAtDepth[0].score >= candidate.score + 20,
+      'an edge must outperform same-priority diagonal alternatives by at least the soft preference');
+  }
+}
+console.log(`ok: 37 independently verified diagonal saves; ${JSON.stringify(preferred.action)} respects evaluated strength and the soft diagonal preference`)
 
 const single = fixture('single-defense'), singleBoard = boardOf(single.request)
 const only = defenses(singleBoard, 'blue', 'red')
@@ -240,3 +247,83 @@ apply(dangerBoard, defended.action, 'red')
 assert(!unanswerable(dangerBoard, danger.winningReply, 'blue', 'red'), 'must account for the known fatal reply before choosing a quiet move')
 // This fixture may still be lost to another route: no claim of global safety.
 console.log('ok: quiet-position search anticipates and disrupts the known unanswerable reply')
+
+// Verify the entire AND/OR certificate with the independent TS implementation.
+// Enumerate ALL board placements, not the Rust witness-path defense generator.
+function verifyForcingProof(board, proof, attacker, defender) {
+  assert(legal(board, proof.action, attacker), 'each proved attack is legal');
+  apply(board, proof.action, attacker);
+  assert(!simulate(board, defender).hits.includes(attacker), 'counterchecks must also be parried');
+  assert(simulate(board, attacker).hits.includes(defender), 'each attack really gives check');
+  const replies = defenses(board, attacker, defender);
+  const id = a => a.kind === 'diag' ? `d:${a.x}:${a.y}:${a.ori}` : a.id;
+  assert.deepEqual(proof.replies.map(r => id(r.action)).sort(), replies.map(id).sort(),
+    'a proof must cover every legal defense, without duplicates or omitted replies');
+  let turns = 1;
+  for (const reply of proof.replies) {
+    apply(board, reply.action, defender);
+    turns = Math.max(turns, 1 + verifyForcingProof(board, reply.continuation, attacker, defender));
+    undo(board, reply.action);
+  }
+  undo(board, proof.action);
+  return turns;
+}
+const chain = fixture('forcing-chain');
+const forcingWin = choose({ ...chain.request, budgetMs: 10_000, maxDepth: 3 });
+assert.equal(forcingWin.stats.stopReason, 'forcing-win');
+assert.equal(forcingWin.stats.forcing.status, 'proven');
+assert.equal(forcingWin.stats.depth, 0, 'tactical proof does not claim an ordinary minimax depth');
+assert.deepEqual(forcingWin.action, forcingWin.stats.forcing.proof.action);
+assert.equal(verifyForcingProof(boardOf(chain.request), forcingWin.stats.forcing.proof, 'blue', 'red'), 2);
+assert.equal(forcingWin.stats.forcing.winningTurns, 2);
+assert.equal(forcingWin.stats.forcing.proof.replies.length, 2);
+console.log('ok: continuous attack proof independently covers both legal defenses and every winning continuation');
+
+const longerChain = fixture('forcing-three');
+const longerWin = choose({ ...longerChain.request, budgetMs: 10_000 });
+assert.equal(longerWin.stats.stopReason, 'forcing-win');
+assert.equal(verifyForcingProof(boardOf(longerChain.request), longerWin.stats.forcing.proof,
+  colors[longerChain.request.current], colors[1 - longerChain.request.current]), 3);
+assert.equal(longerWin.stats.forcing.winningTurns, 3);
+console.log('ok: three successive checks are proved against the full branching defense tree');
+
+const counter = fixture('counter-forcing'), counterBoard = boardOf(counter.request);
+const counterSaves = defenses(counterBoard, 'red', 'blue');
+assert.equal(counterSaves.length, 16);
+// A strategic depth of one must still detect the three-attack counterplay;
+// this regression would otherwise merely pass by searching more ordinary plies.
+const escape = choose({ ...counter.request, budgetMs: 30_000, maxDepth: 1 });
+const sameAction = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+assert(escape.stats.counterplay.length === counterSaves.length, 'check every legal save before shortlist pruning');
+for (const action of counterSaves) assert(escape.stats.counterplay.some(c => sameAction(c.action, action)));
+const refuted = escape.stats.counterplay.filter(c => c.status === 'proven');
+const blunder = refuted.find(c => sameAction(c.action, counter.badMove));
+assert(blunder && blunder.winningTurns === 3, 'the old blue defense must be refuted by a complete three-attack proof');
+for (const candidate of refuted) {
+  apply(counterBoard, candidate.action, 'blue');
+  assert.equal(verifyForcingProof(counterBoard, candidate.proof, 'red', 'blue'), candidate.winningTurns);
+  undo(counterBoard, candidate.action);
+}
+assert(!refuted.some(c => sameAction(c.action, escape.action)), 'must not select any proved losing defense');
+assert(counterSaves.some(a => sameAction(a, escape.action)), 'replacement still blocks the current attack');
+assert(escape.stats.counterplay.some(c => c.status !== 'proven' && sameAction(c.action, counter.alternative)));
+for (const candidate of escape.stats.iterations[0].candidates) {
+  if (refuted.some(c => sameAction(c.action, candidate.action))) {
+    assert.equal(candidate.selectionPriority, 0);
+    assert(candidate.score < -500_000);
+  }
+}
+console.log(`ok: recorded blue turn 6 avoids ${refuted.length} independently proved forcing losses at strategic depth one`);
+
+const doomed = fixture('no-defense'), doomedBoard = boardOf(doomed.request);
+const loser = colors[doomed.request.current], winner = colors[1 - doomed.request.current];
+assert(simulate(doomedBoard, winner).hits.includes(loser));
+assert.equal(defenses(doomedBoard, winner, loser).length, 0, 'independently exhaust all saving moves');
+const finish = choose({ ...doomed.request, budgetMs: 3000 });
+assert(legal(doomedBoard, finish.action, loser), 'a proved loss must still return a legal move');
+assert.equal(finish.stats.stopReason, 'no-defense');
+assert.equal(finish.stats.safe, false);
+assert(finish.stats.defenseComplete);
+apply(doomedBoard, finish.action, loser);
+assert(simulate(doomedBoard, winner).hits.includes(loser), 'the next turn really settles the loss');
+console.log('ok: a proved indefensible position completes normally instead of raising an AI error');

@@ -1,14 +1,20 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { defaultDshProfileId } from '../ai/config'
+import { defineAsyncComponent, computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import ClockSettings from '../components/ClockSettings.vue'
 import ChessClock from '../components/ChessClock.vue'
 import VictoryBeam from '../components/VictoryBeam.vue'
 import GameResult from '../components/GameResult.vue'
 import AiTestPanel from '../components/AiTestPanel.vue'
+import DshSettings from '../components/DshSettings.vue'
+import DshProfileSelect from '../components/DshProfileSelect.vue'
+import { loadTrajectoryRuns, trajectoryRuns } from '../ai/trajectory'
+import { aiProviderName, type AiProvider } from '../ai/providers'
 import { aiTest, leaveAiTestMode, startAiTestGame } from '../ai/test-session'
 import type { ClockSettings as ClockConfig } from '../clock'
-import { aiStatus, aiTurnColor, retryAi } from '../ai/controller'
+import { aiStatus, aiTurnColor, cancelAi, retryAi } from '../ai/controller'
 import { netClose } from '../net'
+import { prepareOpening, openingProgressLabel } from '../prepare-opening'
 import {
   edgeMid,
   edgeOf,
@@ -23,6 +29,7 @@ import {
 } from '../game'
 import {
   aiAuthority,
+  aiProviderFor,
   board,
   isAiPlayer,
   toLobby,
@@ -43,8 +50,7 @@ import {
   wouldEnclose,
   wouldEncloseDiag,
 } from '../store'
-import { aiEngineFor } from '../store'
-import { loadNnModels, type NnModelInfo } from '../nn/models'
+import { loadNnModels, nnModelsForSize, type NnModelInfo } from '../nn/models'
 import { openReview } from '../review'
 
 const S = 28 // 格距（px）
@@ -56,6 +62,28 @@ const u = (v: number) => PAD + v * S
 const COLORS = Object.fromEntries(PALETTE.map((p) => [p.id, p.hex])) as Record<Color, string>
 const name = (c: Color) => `${PALETTE.find((p) => p.id === c)?.name ?? c}方`
 const thinkingTime = (ms: number) => ms < 1 ? '不足 1 毫秒' : ms < 1000 ? `${Math.round(ms)} 毫秒` : `${(ms / 1000).toFixed(1)} 秒`
+const hasDsh = computed(() => state.aiPlayers.some(c => aiProviderFor(c) === 'dsh'))
+const DshTrajectoryPanel = defineAsyncComponent(() => import('../components/DshTrajectoryPanel.vue'))
+const trajectoryOpen = ref(false)
+const hasTrajectory = computed(() => hasDsh.value || trajectoryRuns.value.some(r => r.gameId === state.sessionId))
+watch(hasDsh, value => { if (value) trajectoryOpen.value = true }, { immediate: true })
+watch(() => state.sessionId, id => { void loadTrajectoryRuns(id).catch(error => console.warn('无法读取 DSH 轨迹', error)) }, { immediate: true })
+function changeAiProvider(color: Color, event: Event) {
+  const provider = (event.target as HTMLSelectElement).value as AiProvider
+  dispatch({ kind: 'ai-provider-setting', color: state.players[0], target: color, provider })
+  if (provider === 'dsh' && !state.aiProfileIds[color] && defaultDshProfileId()) {
+    dispatch({ kind: 'ai-profile-setting', color: state.players[0], target: color, profileId: defaultDshProfileId() })
+  }
+  if (provider === 'nn' && !state.aiNnConfigs[color]) {
+    const model = sizeModels.value.find(m => m.recommended) ?? sizeModels.value[0]
+    if (model) dispatch({ kind: 'ai-nn-setting', color: state.players[0], target: color, nn: { modelId: model.id } })
+  }
+}
+function changeNnModel(color: Color, event: Event) {
+  const current = state.aiNnConfigs[color]
+  if (!current) return
+  dispatch({ kind: 'ai-nn-setting', color: state.players[0], target: color, nn: { ...current, modelId: (event.target as HTMLSelectElement).value } })
+}
 
 const hoverEdge = ref<string | null>(null)
 const hoverCell = ref<Pt | null>(null)
@@ -323,13 +351,32 @@ const edgeHitEnabled = computed(() => !(state.phase === 'setup' && !pendingHome.
 /** 本机是否为房主侧（单机视为房主）：决定能否重新开始 */
 const isHostSide = computed(() => state.mode === 'local' || state.myColor === hostColor.value)
 
-function restart() {
+const generatingOpening = ref(false)
+const openingProgress = ref('')
+const openingError = ref('')
+let openingAbort: AbortController | undefined
+async function restart() {
+  if (generatingOpening.value) return
   pendingHome.value = null
   if (aiTest.active) { startAiTestGame(); return }
-  dispatch({ kind: 'restart', color: state.mode === 'online' ? state.myColor! : state.players[0] })
+  openingError.value = ''
+  openingAbort = new AbortController()
+  try {
+    if (state.openingSettings.enabled) {
+      cancelAi()
+      generatingOpening.value = true
+      openingProgress.value = '正在生成并校验新局面…'
+    }
+    const opening = await prepareOpening(state.openingSettings, state.size, state.players, state.boundaryReflects,
+      openingAbort.signal, status => { openingProgress.value = openingProgressLabel(status) })
+    openingAbort.signal.throwIfAborted()
+    dispatch({ kind: 'restart', color: state.mode === 'online' ? state.myColor! : state.players[0], opening })
+  } catch (error) { openingError.value = error instanceof Error ? error.message : String(error) }
+  finally { generatingOpening.value = false; openingProgress.value = '' }
 }
 
 function leaveGame() {
+  openingAbort?.abort()
   if (aiTest.active) { leaveAiTestMode(); return }
   netClose()
   toLobby()
@@ -377,6 +424,7 @@ onMounted(() => {
   window.addEventListener('blur', onBlur)
 })
 onUnmounted(() => {
+  openingAbort?.abort()
   window.removeEventListener('keydown', onKey)
   window.removeEventListener('keyup', onKey)
   window.removeEventListener('blur', onBlur)
@@ -430,21 +478,11 @@ const laserSim = (c: Color) =>
   showPath.value === c || showAllLasers.value ? sims.value.get(c) ?? null : null
 
 // ---------- AI 座位展示与暂停/继续 ----------
-/** 本地 NN 模型目录（顶栏 AI 标签显示模型名） */
+/** 本地 NN 模型目录（座位控件显示模型名） */
 const nnModels = ref<NnModelInfo[]>([])
 onMounted(() => { loadNnModels().then((l) => (nnModels.value = l)).catch(() => { /* 标签退化为模型 id */ }) })
+const sizeModels = computed(() => nnModelsForSize(nnModels.value, state.size))
 const nnModelName = (id: string) => nnModels.value.find((m) => m.id === id)?.name ?? id
-
-/** 顶栏 AI 座位标签：内置引擎显示思考上限，NN 座位显示模型名 */
-const aiSeatLabels = computed(() =>
-  state.aiPlayers.map((c) => {
-    const engine = aiEngineFor(c)
-    const text = engine.kind === 'nn'
-      ? `${name(c)} AI · ${nnModelName(engine.modelId)}${engine.stochastic ? ' · 随机' : ''}`
-      : `${name(c)} AI · 每步最多 ${(engine.budgetMs ?? state.aiBudgetMs) / 1000} 秒`
-    return { color: c, text }
-  }),
-)
 
 /** 暂停/继续 AI：暂停直接置位（本地/房主权威），继续走 upstream ai-resume 动作（联机可广播） */
 const aiPauseVisible = computed(
@@ -587,6 +625,7 @@ const statusText = computed(() => {
     if (ghostHomeBad.value) return '这个位置会让先手在开局立即命中基地，请换一个位置'
     if (unsafeExit.value) return '这个开口会让先手在开局立即命中基地，请换个方向或位置'
     if (state.mode === 'online') {
+      if (isAiPlayer(state.myColor!)) return '等待真人玩家布置基地，随后 AI 自动布置…'
       if (!state.homes[state.myColor!])
         return pendingHome.value
           ? edgeExitHint.value
@@ -609,7 +648,7 @@ const statusText = computed(() => {
 </script>
 
 <template>
-  <div class="game">
+  <div class="game" :class="{ 'with-trajectory': hasTrajectory && trajectoryOpen }">
     <div class="paper board-wrap">
       <svg ref="svgEl" class="board-svg" :viewBox="`0 0 ${SIZE} ${SIZE}`">
         <!-- 格子点击层 -->
@@ -889,6 +928,10 @@ const statusText = computed(() => {
       <div v-if="state.aiPaused && aiTurnColor && aiAuthority()" class="note">
         <button class="btn-plain" @click="retryAi">恢复 AI 思考</button>
       </div>
+      <div v-if="aiStatus.status === 'thinking' && aiTurnColor && aiAuthority()" class="note ai-progress">
+        <p v-if="aiStatus.progress" role="status" aria-live="polite">{{ aiStatus.progress }}</p>
+        <button class="btn-plain" @click="cancelAi">取消本次思考</button>
+      </div>
       <div v-if="lastAiAnalysis" class="note ai-analysis" aria-label="AI 上一步说明">
         <p class="ai-analysis-label">上一步 · {{ name(lastAiAnalysis.color) }} AI <span>思考 {{ thinkingTime(lastAiAnalysis.elapsedMs) }}</span></p>
         <p v-if="lastAiAnalysis.reason" class="ai-analysis-reason">{{ lastAiAnalysis.reason }}</p>
@@ -912,10 +955,28 @@ const statusText = computed(() => {
           × {{ state.size }}
         </label>
         <span v-else class="room">棋盘 {{ state.size }}×{{ state.size }}</span>
+        <span v-if="state.openingSettings.enabled" class="room">预设开局 · 每方 {{ state.openingSettings.mirrorsPerPlayer }} 面额外镜子</span>
         <span v-if="state.mode === 'online'" class="room">
-          房间 {{ state.roomCode }} · 你执{{ name(state.myColor!) }}
+          房间 {{ state.roomCode }} ·
+          <template v-if="isAiPlayer(state.myColor!)">你是房主（{{ name(state.myColor!) }}由 AI 执棋）</template>
+          <template v-else>你执{{ name(state.myColor!) }}</template>
         </span>
-        <span v-for="s in aiSeatLabels" :key="`ai-${s.color}`" class="room" :style="{ color: COLORS[s.color] }">{{ s.text }}</span>
+        <div v-for="c in state.aiPlayers" :key="`ai-${c}`" class="room ai-provider-control" :style="{ color: COLORS[c] }">
+          {{ name(c) }} AI
+          <select v-if="aiAuthority()" :value="aiProviderFor(c)" :aria-label="`${name(c)} AI 实现`" @change="changeAiProvider(c, $event)">
+            <option value="wasm">Rust / WASM</option><option value="dsh">DSH</option><option value="nn">NN（本机）</option>
+          </select>
+          <span v-else>{{ aiProviderName(aiProviderFor(c)) }}</span>
+          <span v-if="aiProviderFor(c) === 'wasm'">每步最多 {{ state.aiBudgetMs / 1000 }} 秒</span>
+          <template v-if="aiProviderFor(c) === 'nn'">
+            <select v-if="aiAuthority()" :value="state.aiNnConfigs[c]?.modelId" :aria-label="`${name(c)} NN 模型`" @change="changeNnModel(c, $event)">
+              <option v-for="m in sizeModels" :key="m.id" :value="m.id">{{ m.name }} · Elo {{ m.elo }}{{ m.recommended ? ' · 推荐' : '' }}</option>
+            </select>
+            <span v-else>{{ state.aiNnConfigs[c] ? nnModelName(state.aiNnConfigs[c]!.modelId) : '未配置模型' }}</span>
+            <span v-if="state.aiNnConfigs[c]?.stochastic">随机</span>
+          </template>
+          <DshProfileSelect v-if="aiProviderFor(c) === 'dsh' && aiAuthority()" :model-value="state.aiProfileIds[c]" :label="`${name(c)} LLM 配置`" @update:model-value="dispatch({ kind: 'ai-profile-setting', color: state.players[0], target: c, profileId: $event })" />
+        </div>
         <span
           v-for="c in state.players.filter((c) => state.dead.includes(c))"
           :key="`dead-${c}`"
@@ -925,6 +986,7 @@ const statusText = computed(() => {
           ✕ {{ name(c) }}{{ state.timedOut.includes(c) ? '超时出局' : '已出局' }}
         </span>
       </div>
+      <DshSettings v-if="!aiTest.active && hasDsh && aiAuthority()" class="note" />
 
       <div class="ctl-note note">
       <ClockSettings v-if="!aiTest.active" :settings="state.clockSettings" :disabled="state.phase !== 'setup' || !isHostSide" @change="changeClock" />
@@ -949,12 +1011,14 @@ const statusText = computed(() => {
       <span v-else class="laser-tag">鼠标悬停在「家」上可查看光路</span>
       <div v-if="undoAvailable || isHostSide" class="btn-row">
         <button v-if="undoAvailable" class="btn-plain" :disabled="!canUndoNow" @click="undo">撤回一步</button>
-        <button v-if="isHostSide && !aiTest.active" class="btn-plain" @click="restart">重新开始</button>
+        <button v-if="isHostSide && !aiTest.active" class="btn-plain" :disabled="generatingOpening" @click="restart">{{ generatingOpening ? '正在生成…' : '重新开始' }}</button>
         <button v-if="aiPauseVisible" class="btn-plain" @click="toggleAiPause">
           {{ state.aiPaused ? '继续 AI' : '暂停 AI' }}
         </button>
         <button v-if="state.phase === 'over' && state.mode === 'local'" class="btn-plain" @click="openReview()">复盘分析</button>
       </div>
+      <p v-if="openingProgress" role="status">{{ openingProgress }}</p>
+      <p v-if="openingError" class="ai-error" role="alert">{{ openingError }}</p>
       <button class="btn-plain" @click="leaveGame">回到大厅</button>
     </div>
 
@@ -963,22 +1027,25 @@ const statusText = computed(() => {
       <div class="help-body">
         <p><b>目标</b>：让自家的激光经镜面反射，打到别人的家。</p>
         <p v-if="aiTest.active"><b>开局</b>：基地已自动布置，蓝方先手；直接放置镜子开始测试。</p>
+        <p v-else-if="state.openingSettings.enabled"><b>开局</b>：基地与镜子已随机生成，各方数量相同，新生成局面会排除直接命中及一手无解攻击；蓝方先手，直接继续放镜。「重新开始」会按相同数量生成新局面。</p>
         <p v-else><b>开局</b>：各选一个格子当家并指定开口，其余 3 条边自动放上你的镜子。家向四个方向发光，光线也能穿过自己的家镜。</p>
         <p><b>放镜</b>：轮流每回合放一面，不可移除。点网格边放边镜；左键格子放「/」、右键放「\」斜镜，Shift 反向。对方基地的开口也可放镜，仍须遵守禁围规则。</p>
         <p><b>反射</b>：自己的镜子对自己半反射（穿过+反射），别人的镜子只反射。</p>
         <p v-if="aiTest.active"><b>边界</b>：测试模式中，边界始终对所有光线全反射。</p>
         <p v-else><b>边界</b>：开启「边界反射」时，边界对所有光线全反射；关闭时出界光线终止。开局后不可更改。</p>
         <p><b>限制</b>：每种颜色的边镜、斜镜分别连同边框，不能把仍在场的基地彼此隔开；所有基地仍在同一区域时允许。</p>
-        <p v-if="!aiTest.active"><b>布置</b>：允许基地同排或同列，只禁止先手在开局立即命中基地的布置；后续回合的光路威胁仍可通过放镜化解。</p>
+        <p v-if="!aiTest.active && !state.openingSettings.enabled"><b>布置</b>：允许基地同排或同列，只禁止先手在开局立即命中基地的布置；后续回合的光路威胁仍可通过放镜化解。</p>
         <p><b>结算</b>：轮到谁就在其回合开头结算其激光；被打中出局（✕）。双人打中即胜，多人活到最后获胜。</p>
         <p v-if="!aiTest.active"><b>棋钟</b>：只扣当前行动者的时间，合法放镜后加秒；超时出局，多人局继续。掉线等待重连时暂停。</p>
       </div>
     </div>
     </aside>
+    <DshTrajectoryPanel v-if="hasTrajectory" v-model:open="trajectoryOpen" :game-id="state.sessionId" />
   </div>
 </template>
 
 <style scoped>
+.ai-provider-control .llm-select { flex-basis: 100%; }
 .ai-analysis-label { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 5px 12px; margin: 0; font-size: 13px; }
 .ai-analysis-label span { color: #8a7f68; }
 .ai-analysis-reason { margin: 10px 0 0; font-size: 14px; line-height: 1.6; }
@@ -990,6 +1057,12 @@ const statusText = computed(() => {
   justify-content: center;
   gap: 26px;
   width: 100%;
+}
+.game { --trajectory-width: min(56vw, 880px); }
+@media (min-width: 981px) {
+  .game.with-trajectory { width: calc(100% - var(--trajectory-width)); margin-right: var(--trajectory-width); flex-direction: column; align-items: center; }
+  .game.with-trajectory .board-wrap { width: min(100%, calc(100vh - 44px)); }
+  .game.with-trajectory .side { width: 100%; max-height: none; }
 }
 /* 右侧便签栏 */
 .side {
@@ -1257,6 +1330,9 @@ const statusText = computed(() => {
 .help-note p b {
   color: #6b5f47;
 }
+.ai-provider-control { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
+.ai-provider-control select { max-width: 100%; border: 1px solid #9e9278; border-radius: 5px; padding: 3px 5px; font: inherit; color: inherit; background: #fffaf0; }
+.ai-progress p { font-size: 12px; overflow-wrap: anywhere; }
 /* 窄屏回退为上下布局 */
 @media (max-width: 980px) {
   .game {

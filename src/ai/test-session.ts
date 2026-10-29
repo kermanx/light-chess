@@ -1,7 +1,7 @@
 import { reactive, watch } from 'vue'
 import { defaultClockSettings, freshClock } from '../clock'
 import { edgeOf, type Color, type Dir, type Home, type Mirror } from '../game'
-import { applySnapshot, onActionApplied, serialize, setGamePersistenceEnabled, state, toLobby, type Snapshot } from '../store'
+import { aiProviderFor, applySnapshot, onActionApplied, serialize, setGamePersistenceEnabled, state, toLobby, type Snapshot } from '../store'
 import { onAiSearch } from './telemetry'
 import { acknowledgeTestEvents, countTestGames, loadTestGame, readTestEvents, saveTestEvent, testEventLineage, type TestEvent, type TestGame } from './test-records'
 
@@ -138,7 +138,10 @@ function initialSnapshot(id: string): Snapshot {
   const clockSettings = { ...defaultClockSettings(), enabled: false }
   return {
     v: 1, sessionId: id, mode: 'local', myColor: null, roomCode: '',
-    players: ['blue', 'red'], aiPlayers: ['red'], aiBudgetMs: 10_000, aiPaused: false,
+    players: ['blue', 'red'], aiPlayers: ['red'],
+    aiProviders: { red: aiTest.active ? aiProviderFor('red') : 'wasm' },
+    aiProfileIds: aiTest.active ? { red: state.aiProfileIds.red } : {},
+    aiBudgetMs: aiTest.active ? state.aiBudgetMs : 10_000, aiPaused: false,
     phase: 'play', size: 16, homes, edges, diags: [], current: 'blue',
     winner: null, dead: [], lastMove: null, victoryReplay: null,
     boundaryReflects: true, laserAllowed: true, allowUndo: true,

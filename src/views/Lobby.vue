@@ -1,11 +1,18 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
-import { MAX_PLAYERS, MIN_PLAYERS, PALETTE, type Color } from '../game'
+import { MAX_PLAYERS, MIN_PLAYERS, PALETTE, seatColors, type Color } from '../game'
 import { announceRoom, watchRooms, type PublicRoom } from '../directory'
 import { isValidCode, netClose, netCreate, netJoin, signaling, type Signaling } from '../net'
-import { SIZE_MAX, SIZE_MIN, startLocal, state, type AiEngineSpec } from '../store'
+import { SIZE_MAX, SIZE_MIN, startLocal, state, type NnSeatConfig } from '../store'
 import { loadNnModels, nnModelsForSize, type NnModelInfo } from '../nn/models'
+import DshSettings from '../components/DshSettings.vue'
+import DshProfileSelect from '../components/DshProfileSelect.vue'
+import { defaultDshProfileId, readDshConfig } from '../ai/config'
+import type { AiProfileIds, AiProvider, AiProviders } from '../ai/providers'
 import ClockSettings from '../components/ClockSettings.vue'
+import { appBase } from '../replay/navigation'
+import { defaultOpeningSettings, maxOpeningMirrors, normalizeOpeningSettings, type OpeningPosition } from '../opening'
+import { prepareOpening, openingProgressLabel } from '../prepare-opening'
 
 const view = ref<'menu' | 'configure' | 'created' | 'join'>('menu')
 const preparing = ref<'local' | 'online'>('local')
@@ -16,24 +23,44 @@ const busy = ref(false)
 const copied = ref(false)
 /** 玩家人数（单机与创建房间共用） */
 const count = ref(MIN_PLAYERS)
+const openingSettings = ref(defaultOpeningSettings())
+const openingLimit = computed(() => maxOpeningMirrors(state.size, count.value))
+watch([() => state.size, count], () => {
+  openingSettings.value = normalizeOpeningSettings(openingSettings.value, state.size, count.value)
+})
+const openingProgress = ref('')
+let openingAbort: AbortController | undefined
+let generatedOpening: OpeningPosition | undefined
+async function generateConfiguredOpening() {
+  openingAbort?.abort()
+  openingAbort = new AbortController()
+  openingProgress.value = openingSettings.value.enabled ? '正在生成并校验预设局面…' : ''
+  try {
+    return await prepareOpening(openingSettings.value, state.size, seatColors(count.value), state.boundaryReflects,
+      openingAbort.signal, status => { openingProgress.value = openingProgressLabel(status) })
+  } finally { openingProgress.value = '' }
+}
 const aiSeats = ref<Color[]>([])
+const aiProviders = ref<AiProviders>({})
+const aiProfileIds = ref<AiProfileIds>({})
 const configuredSeats = computed(() => PALETTE.slice(0, count.value))
 const selectedAi = computed(() => configuredSeats.value.map(p => p.id).filter(c =>
-  aiSeats.value.includes(c) && (preparing.value !== 'online' || c !== PALETTE[0].id)))
+  aiSeats.value.includes(c)))
+const hasDsh = computed(() => selectedAi.value.some(c => aiProviders.value[c] === 'dsh'))
+const hasNnSeat = computed(() => selectedAi.value.some(c => aiProviders.value[c] === 'nn'))
+const hasWasm = computed(() => selectedAi.value.some(c => (aiProviders.value[c] ?? 'wasm') === 'wasm'))
 const hasAi = computed(() => selectedAi.value.length > 0)
 watch(hasAi, value => { if (value) state.boundaryReflects = true })
-function changeSeat(color: Color, event: Event) {
-  const ai = (event.target as HTMLSelectElement).value === 'ai'
-  aiSeats.value = ai ? [...aiSeats.value.filter(c => c !== color), color] : aiSeats.value.filter(c => c !== color)
-}
 
-// ---------- AI 座位引擎（内置 WASM 引擎 / 本地 NN 模型） ----------
+// ---------- AI 座位引擎（内置 WASM 引擎 / DSH / 本地 NN 模型） ----------
 /** 本地 NN 模型目录（public/models/models.json） */
 const nnModels = ref<NnModelInfo[]>([])
 onMounted(() => { loadNnModels().then(l => (nnModels.value = l)).catch(() => { /* 目录不可用时只提供内置引擎 */ }) })
 /** 当前棋盘尺寸可用的 NN 模型 */
 const sizeModels = computed(() => nnModelsForSize(nnModels.value, state.size))
-/** 每个 AI 座位的引擎选择：'wasm' 或 models.json 里的模型 id */
+/** 默认 NN 模型：推荐款优先，其次目录首个 */
+const defaultNnModel = computed(() => sizeModels.value.find(m => m.recommended) ?? sizeModels.value[0])
+/** NN 座位的模型选择（models.json 里的模型 id） */
 const seatEngine = reactive<Record<string, string>>({})
 /** NN 座位的「随机」开关：开启后按温度 0.5 采样，否则 argmax */
 const seatStochastic = reactive<Record<string, boolean>>({})
@@ -43,27 +70,29 @@ const seatLimitMode = reactive<Record<string, 'time' | 'sims'>>({})
 const seatSims = reactive<Record<string, number>>({})
 const limitModeOf = (c: string) => seatLimitMode[c] ?? 'time'
 const simsOf = (c: string) => seatSims[c] ?? 150
-const aiEngineSpecs = computed(() => {
-  const out: Partial<Record<Color, AiEngineSpec>> = {}
+const nnModelOf = (c: string) => sizeModels.value.find(m => m.id === seatEngine[c]) ?? defaultNnModel.value
+const aiNnConfigs = computed(() => {
+  const out: Partial<Record<Color, NnSeatConfig>> = {}
   for (const c of selectedAi.value) {
-    const model = sizeModels.value.find((m) => m.id === seatEngine[c])
-    out[c] = model
-      ? {
-          kind: 'nn', modelId: model.id, stochastic: !!seatStochastic[c],
-          ...(limitModeOf(c) === 'sims' ? { limit: { type: 'sims' as const, sims: simsOf(c) } } : {}),
-        }
-      : { kind: 'wasm' }
+    if (aiProviders.value[c] !== 'nn') continue
+    const model = nnModelOf(c)
+    if (!model) continue
+    out[c] = {
+      modelId: model.id, ...(seatStochastic[c] ? { stochastic: true } : {}),
+      ...(limitModeOf(c) === 'sims' ? { limit: { type: 'sims' as const, sims: simsOf(c) } } : {}),
+    }
   }
   return out
 })
-const hasNnSeat = computed(() => Object.values(aiEngineSpecs.value).some((s) => s?.kind === 'nn'))
 /** NN 模型只支持边界反射棋盘（与 WASM 引擎一致；有 AI 座位时边界反射会被强制开启） */
 const nnBlocked = computed(() => hasNnSeat.value && !state.boundaryReflects)
-function challengeAi() {
-  count.value = 2
-  aiSeats.value = ['red']
-  state.boundaryReflects = true
-  prepare('local')
+function changeSeat(color: Color, event: Event) {
+  const value = (event.target as HTMLSelectElement).value
+  const ai = value !== 'human'
+  if (ai) aiProviders.value[color] = value as AiProvider
+  if (value === 'dsh' && !aiProfileIds.value[color]) aiProfileIds.value[color] = defaultDshProfileId()
+  if (value === 'nn' && !seatEngine[color] && defaultNnModel.value) seatEngine[color] = defaultNnModel.value.id
+  aiSeats.value = ai ? [...aiSeats.value.filter(c => c !== color), color] : aiSeats.value.filter(c => c !== color)
 }
 /** 联机方式（3=中继，1/2=旧 P2P 协议） */
 const sig = ref<Signaling>('relay')
@@ -102,12 +131,26 @@ function clampSize(e: Event) {
   state.size = Math.max(SIZE_MIN, Math.min(SIZE_MAX, Number.isFinite(v) ? v : state.size))
 }
 
-function local() {
-  startLocal(count.value, selectedAi.value, aiEngineSpecs.value)
+function checkProfiles() {
+  for (const color of selectedAi.value) if (aiProviders.value[color] === 'dsh') {
+    readDshConfig(aiProfileIds.value[color])
+    aiProfileIds.value[color] ||= defaultDshProfileId()
+  }
+}
+async function local() {
+  busy.value = true
+  error.value = ''
+  try {
+    checkProfiles()
+    const opening = await generateConfiguredOpening()
+    startLocal(count.value, selectedAi.value, aiProviders.value, aiProfileIds.value, opening, aiNnConfigs.value)
+  } catch (e) { error.value = (e as Error).message }
+  finally { busy.value = false }
 }
 
 function prepare(mode: 'local' | 'online') {
   preparing.value = mode
+  generatedOpening = undefined
   error.value = ''
   view.value = 'configure'
 }
@@ -152,6 +195,7 @@ watch(view, async (v) => {
 })
 
 onUnmounted(() => {
+  openingAbort?.abort()
   stopAnnouncing()
   stopWatching()
 })
@@ -167,7 +211,9 @@ async function create() {
   busy.value = true
   error.value = ''
   try {
-    code.value = await netCreate(count.value, sig.value, selectedAi.value, aiEngineSpecs.value)
+    checkProfiles()
+    generatedOpening = await generateConfiguredOpening()
+    code.value = await netCreate(count.value, sig.value, selectedAi.value, aiProviders.value, aiProfileIds.value, generatedOpening, aiNnConfigs.value)
     if (state.phase !== 'lobby') return
     view.value = 'created'
     void syncAnnounce()
@@ -185,7 +231,8 @@ async function onSigChange(e: Event) {
   busy.value = true
   error.value = ''
   try {
-    code.value = await netCreate(count.value, sig.value, selectedAi.value, aiEngineSpecs.value)
+    checkProfiles()
+    code.value = await netCreate(count.value, sig.value, selectedAi.value, aiProviders.value, aiProfileIds.value, generatedOpening, aiNnConfigs.value)
     void syncAnnounce()
   } catch (err) {
     error.value = (err as Error).message
@@ -210,6 +257,7 @@ async function join() {
 }
 
 function cancel() {
+  openingAbort?.abort()
   netClose()
   stopAnnouncing()
   stopWatching()
@@ -241,10 +289,6 @@ onMounted(() => {
           <span class="card-title">单机对战</span>
           <span class="card-desc">自由搭配人类与 AI 座位</span>
         </button>
-        <button class="card" @click="challengeAi">
-          <span class="card-title">挑战 AI</span>
-          <span class="card-desc">逻辑搜索，光路对决</span>
-        </button>
         <button class="card" :disabled="busy" @click="prepare('online')">
           <span class="card-title">创建房间</span>
           <span class="card-desc">邀请朋友，在线对决</span>
@@ -254,6 +298,8 @@ onMounted(() => {
           <span class="card-desc">输入房间号入座</span>
         </button>
       </div>
+      <a class="btn-plain replay-entry" :href="`${appBase()}replays`">对局回放 · DSH vs 规则 AI</a>
+      <DshSettings />
     </div>
 
     <div v-else-if="view === 'configure'" class="panel">
@@ -277,56 +323,59 @@ onMounted(() => {
           </button>
         </div>
         <div class="seat-settings" aria-label="玩家座位">
-          <div v-for="p in configuredSeats" :key="p.id" class="seat-row">
+          <div v-for="p in configuredSeats" :key="p.id" class="seat-card"><label class="seat-row">
             <span :style="{ color: p.hex }">{{ p.name }}方{{ preparing === 'online' && p.id === 'blue' ? '（房主）' : '' }}</span>
             <span class="seat-ctls">
-              <select class="sig-select" :aria-label="`${p.name}方控制方式`" :value="selectedAi.includes(p.id) ? 'ai' : 'human'"
-                :disabled="preparing === 'online' && p.id === 'blue'" @change="changeSeat(p.id, $event)">
+              <select class="sig-select" :aria-label="`${p.name}方控制方式`" :value="selectedAi.includes(p.id) ? (aiProviders[p.id] ?? 'wasm') : 'human'"
+                @change="changeSeat(p.id, $event)">
                 <option value="human">{{ preparing === 'online' ? '真人玩家' : '人类' }}</option>
-                <option value="ai">AI</option>
+                <option value="wasm">AI · Rust / WASM</option>
+                <option value="dsh">AI · DSH</option>
+                <option value="nn">AI · 神经网络（本机）</option>
               </select>
-              <template v-if="selectedAi.includes(p.id)">
-                <select v-model="seatEngine[p.id]" class="sig-select" :aria-label="`${p.name}方 AI 引擎`">
-                  <option value="wasm">内置引擎</option>
+              <template v-if="selectedAi.includes(p.id) && aiProviders[p.id] === 'nn'">
+                <select v-model="seatEngine[p.id]" class="sig-select" :aria-label="`${p.name}方 NN 模型`">
                   <option v-for="m in sizeModels" :key="m.id" :value="m.id" :title="m.eloNote">
                     {{ m.name }} · Elo {{ m.elo }}{{ m.eloNote ? '†' : '' }}{{ m.recommended ? ' · 推荐' : '' }}
                   </option>
                 </select>
-                <template v-if="sizeModels.some((m) => m.id === seatEngine[p.id])">
-                  <select
-                    class="sig-select" :aria-label="`${p.name}方 NN 计算量`"
-                    :value="limitModeOf(p.id)"
-                    @change="seatLimitMode[p.id] = ($event.target as HTMLSelectElement).value as 'time' | 'sims'"
-                  >
-                    <option value="time">按时间</option>
-                    <option value="sims">按模拟数</option>
-                  </select>
-                  <select
-                    v-if="limitModeOf(p.id) === 'sims'" class="sig-select" :aria-label="`${p.name}方 MCTS 模拟数`"
-                    :value="simsOf(p.id)"
-                    @change="seatSims[p.id] = Number(($event.target as HTMLSelectElement).value)"
-                  >
-                    <option :value="50">50 sims（快速）</option>
-                    <option :value="150">150 sims（训练/评测标准）</option>
-                    <option :value="400">400 sims（棋力优先）</option>
-                  </select>
-                  <label class="laser-opt seat-stochastic">
-                    <input type="checkbox" v-model="seatStochastic[p.id]" />
-                    随机
-                  </label>
-                </template>
+                <select
+                  class="sig-select" :aria-label="`${p.name}方 NN 计算量`"
+                  :value="limitModeOf(p.id)"
+                  @change="seatLimitMode[p.id] = ($event.target as HTMLSelectElement).value as 'time' | 'sims'"
+                >
+                  <option value="time">按时间</option>
+                  <option value="sims">按模拟数</option>
+                </select>
+                <select
+                  v-if="limitModeOf(p.id) === 'sims'" class="sig-select" :aria-label="`${p.name}方 MCTS 模拟数`"
+                  :value="simsOf(p.id)"
+                  @change="seatSims[p.id] = Number(($event.target as HTMLSelectElement).value)"
+                >
+                  <option :value="50">50 sims（快速）</option>
+                  <option :value="150">150 sims（训练/评测标准）</option>
+                  <option :value="400">400 sims（棋力优先）</option>
+                </select>
+                <label class="laser-opt seat-stochastic">
+                  <input type="checkbox" v-model="seatStochastic[p.id]" />
+                  随机
+                </label>
               </template>
             </span>
+          </label>
+          <DshProfileSelect v-if="selectedAi.includes(p.id) && aiProviders[p.id] === 'dsh'" v-model="aiProfileIds[p.id]" :label="`${p.name}方 LLM 配置`" />
           </div>
         </div>
-        <label v-if="hasAi" class="laser-opt">
-          AI 每步最多思考（内置引擎与「按时间」NN 座位共用）
+        <label v-if="hasWasm || hasNnSeat" class="laser-opt">
+          AI 每步最多思考（WASM 与「按时间」NN 座位共用）
           <select v-model.number="state.aiBudgetMs" class="sig-select" aria-label="AI 每步思考上限">
             <option :value="3000">3 秒</option>
             <option :value="10000">10 秒</option>
             <option :value="30000">30 秒（棋力优先）</option>
           </select>
         </label>
+        <DshSettings v-if="hasDsh" />
+        <p v-if="hasDsh" class="ai-hint">DSH 不使用 WASM 的思考上限；启用棋钟时仍受棋局时间限制。</p>
         <p v-if="!sizeModels.length && nnModels.length" class="ai-hint">
           NN 模型只支持 {{ [...new Set(nnModels.map((m) => m.boardSize))].join('、') }}× 棋盘：把下方棋盘尺寸改为
           <button class="btn-plain size-chip" v-for="s in [...new Set(nnModels.map((m) => m.boardSize))]" :key="s" @click="state.size = s">{{ s }}×{{ s }}</button>
@@ -334,10 +383,24 @@ onMounted(() => {
         </p>
         <p v-if="nnBlocked" class="error" style="margin: 0">NN 模型需要开启边界反射（与内置引擎一致）。</p>
         <p v-if="hasAi" class="ai-hint">AI 可提前落子，自动布置基地，需要边界反射。联机 AI 由房主运行，不占真人连接；NN 模型在本机浏览器内推理，无需联网。</p>
+        <p v-if="preparing === 'online' && selectedAi.includes('blue')" class="ai-hint">蓝方由 AI 执棋，你仍是房主，可以管理房间和 AI。请保持房主页面在线。</p>
         <label class="laser-opt">棋盘
           <input class="size-input" type="number" :min="SIZE_MIN" :max="SIZE_MAX" :value="state.size" @change="clampSize" />
           × {{ state.size }} 格
         </label>
+        <div class="opening-settings">
+          <label class="laser-opt">
+            <input type="checkbox" v-model="openingSettings.enabled" />
+            生成预设基地与镜子
+          </label>
+          <template v-if="openingSettings.enabled">
+            <label class="opening-count" for="opening-count">每方额外镜子 <strong>{{ openingSettings.mirrorsPerPlayer }} 面</strong></label>
+            <input id="opening-count" class="opening-slider" type="range" min="1" :max="openingLimit" step="1"
+              v-model.number="openingSettings.mirrorsPerPlayer" aria-label="每方预设镜子数" />
+            <div class="opening-range"><span>1 面</span><span>{{ openingLimit }} 面</span></div>
+            <p class="ai-hint">不含基地自带的 3 面镜子，各方数量相同。基地与镜子随机生成，校验禁围、所有光路及首手攻防，排除一手无解的开局，蓝方先手。</p>
+          </template>
+        </div>
         <ClockSettings :settings="state.clockSettings" @change="state.clockSettings = $event" />
         <label class="laser-opt">
           <input type="checkbox" v-model="state.boundaryReflects" :disabled="hasAi" />
@@ -348,9 +411,10 @@ onMounted(() => {
           公开房间（允许其他玩家发现并加入）
         </label>
       </fieldset>
+      <p v-if="openingProgress" class="ai-hint" role="status">{{ openingProgress }}</p>
       <div class="row">
         <button class="btn-primary" :disabled="busy || nnBlocked" @click="preparing === 'local' ? local() : create()">
-          {{ preparing === 'local' ? '开始对局' : busy ? '正在创建…' : '创建并等待' }}
+          {{ openingProgress ? '正在生成局面…' : busy ? '正在准备…' : preparing === 'local' ? '开始对局' : '创建并等待' }}
         </button>
         <button class="btn-plain" :disabled="busy" @click="cancel">返回</button>
       </div>
@@ -370,9 +434,10 @@ onMounted(() => {
       </div>
 
       <div class="settings">
+        <p v-if="state.openingSettings.enabled" class="ai-hint">预设局面已准备 · 每方 {{ state.openingSettings.mirrorsPerPlayer }} 面额外镜子；所有玩家将使用同一盘局面。</p>
         <ClockSettings :settings="state.clockSettings" @change="state.clockSettings = $event" />
         <label class="laser-opt">
-          <input type="checkbox" v-model="state.boundaryReflects" :disabled="hasAi" />
+          <input type="checkbox" v-model="state.boundaryReflects" :disabled="hasAi || state.openingSettings.enabled" />
           边界反射（所有光线碰到边界都会反射）
         </label>
         <label class="laser-opt">
@@ -395,6 +460,7 @@ onMounted(() => {
             :min="SIZE_MIN"
             :max="SIZE_MAX"
             :value="state.size"
+            :disabled="state.openingSettings.enabled"
             @change="clampSize"
           />
           × {{ state.size }} 格
@@ -467,6 +533,14 @@ onMounted(() => {
 </template>
 
 <style scoped>
+.opening-settings { display: flex; flex-direction: column; gap: 10px; padding: 14px; background: #eee7d8; border: 1px solid #d2c5aa; border-radius: 9px; }
+.opening-count, .opening-range { display: flex; justify-content: space-between; gap: 12px; }
+.opening-count { font-size: 14px; }
+.opening-count strong { color: #2f6fed; font-weight: 600; font-variant-numeric: tabular-nums; }
+.opening-slider { width: 100%; margin: 0; accent-color: #2f6fed; cursor: pointer; }
+.opening-range { font-size: 12px; color: #8a7f68; }
+.seat-card { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.replay-entry { color: inherit; text-decoration: none; }
 .seat-settings { display: flex; flex-direction: column; gap: 10px; }
 .seat-row { display: flex; align-items: center; justify-content: space-between; gap: 18px; font-size: 14px; }
 .seat-ctls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }

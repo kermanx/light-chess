@@ -1,4 +1,5 @@
 pub mod board;
+pub mod forcing;
 pub mod optics;
 pub mod planning;
 mod search;
@@ -176,6 +177,10 @@ pub struct Stats {
     pub plans: usize,
     pub stop_reason: String,
     pub reason: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub forcing: Option<forcing::ForcingStats>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub counterplay: Vec<forcing::CounterplayRecord>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub iterations: Vec<SearchIteration>,
     #[serde(skip_serializing_if = "Option::is_none")]

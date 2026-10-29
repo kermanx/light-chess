@@ -41,11 +41,12 @@ try {
   )
   const finalSave = await page.evaluate(() => {
     const s = JSON.parse(sessionStorage.getItem('light-chess:save') || localStorage.getItem('light-chess:save') || '{}')
-    return { moves: s.moves?.length ?? 0, phase: s.phase, aiEngines: s.aiEngines, lastMove: s.lastMove }
+    return { moves: s.moves?.length ?? 0, phase: s.phase, aiProviders: s.aiProviders, aiNnConfigs: s.aiNnConfigs, lastMove: s.lastMove }
   })
   assert.ok(finalSave.moves >= 10 || finalSave.phase === 'over', `对局未推进：${JSON.stringify(finalSave)}`)
-  assert.equal(finalSave.aiEngines?.red?.kind, 'nn', '存档未带 NN 引擎配置')
-  assert.equal(finalSave.aiEngines?.blue?.kind, 'wasm', '存档未带 WASM 引擎配置')
+  assert.equal(finalSave.aiProviders?.red, 'nn', '存档未带 NN 引擎配置')
+  assert.ok(finalSave.aiNnConfigs?.red?.modelId, '存档未带 NN 模型配置')
+  assert.equal(finalSave.aiProviders?.blue ?? 'wasm', 'wasm', '存档未带 WASM 引擎配置')
   assert.deepEqual(errors, [], '浏览器端出现报错')
   console.log(`浏览器对局推进：${finalSave.moves} 手（phase=${finalSave.phase}）`)
   console.log('NN MCTS 浏览器端到端冒烟通过（NN MCTS 3s vs WASM 3s，无 console 错误）')

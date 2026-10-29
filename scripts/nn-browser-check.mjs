@@ -46,10 +46,11 @@ try {
   )
   const finalSave = await page.evaluate(() => {
     const s = JSON.parse(sessionStorage.getItem('light-chess:save') || localStorage.getItem('light-chess:save') || '{}')
-    return { moves: s.moves?.length ?? 0, phase: s.phase, aiEngines: s.aiEngines }
+    return { moves: s.moves?.length ?? 0, phase: s.phase, aiProviders: s.aiProviders, aiNnConfigs: s.aiNnConfigs }
   })
   assert.ok(finalSave.moves >= 6 || finalSave.phase === 'over', `NN 未实际落子：${JSON.stringify(finalSave)}`)
-  assert.equal(finalSave.aiEngines?.blue?.kind, 'nn', '存档未带 NN 引擎配置')
+  assert.equal(finalSave.aiProviders?.blue, 'nn', '存档未带 NN 引擎配置')
+  assert.ok(finalSave.aiNnConfigs?.blue?.modelId, '存档未带 NN 模型配置')
   assert.deepEqual(errors, [], '浏览器端出现报错')
   console.log(`浏览器对局推进：${finalSave.moves} 手（phase=${finalSave.phase}）`)
   console.log('NN 浏览器端到端冒烟通过（双 NN 座位自动对弈，wasm 推理链路正常）')

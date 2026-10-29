@@ -1,4 +1,5 @@
 use crate::board::{Board, Move, REFLECT};
+use crate::forcing::{CounterplayRecord, ForcingSearch, ForcingStats};
 use crate::optics::{
     additions, along, connection_distances, connections, defenses, settle_next, source_distance,
     trace, Trace, INF,
@@ -9,8 +10,8 @@ use std::collections::{HashMap, HashSet};
 
 const WIN: i32 = 1_000_000;
 const LIMIT: i32 = 2_000_000;
-// Small ordering hint. Final attack/diagonal preferences are explicit priority
-// tiers, so a small heuristic difference cannot silently overturn either rule.
+// Prefer a diagonal only when the evaluated alternatives are within 20 points.
+// Mirror shape must never outrank a materially better defense.
 const DIAGONAL_PREFERENCE: i32 = 20;
 
 fn selection_score(action: Move, score: i32) -> i32 {
@@ -25,13 +26,13 @@ fn selection_score(action: Move, score: i32) -> i32 {
 // Initiative is a decision priority, not a few extra leaf-evaluation points.
 // A reply that blocks a check does not undo the tempo it spent defending.
 // Tactical wins/losses found by the search still take precedence.
-fn selection_priority(score: i32, direct_attack: bool, diagonal: bool) -> u8 {
+fn selection_priority(score: i32, direct_attack: bool) -> u8 {
     if score >= WIN / 2 {
         5
     } else if score <= -WIN / 2 {
-        0
+        1
     } else {
-        1 + 2 * u8::from(direct_attack) + u8::from(diagonal)
+        2 + 2 * u8::from(direct_attack)
     }
 }
 
@@ -138,10 +139,62 @@ mod tests {
 
     #[test]
     fn search_tactics_override_initiative_but_static_scores_do_not() {
-        assert!(selection_priority(-650, true, false) > selection_priority(625, false, true));
-        assert!(selection_priority(0, false, false) > selection_priority(-WIN + 4, true, true));
-        assert!(selection_priority(WIN - 4, false, false) > selection_priority(625, true, true));
-        assert!(selection_priority(600, false, true) > selection_priority(650, false, false));
+        assert!(selection_priority(-650, true) > selection_priority(625, false));
+        assert!(selection_priority(0, false) > selection_priority(-WIN + 4, true));
+        assert!(selection_priority(WIN - 4, false) > selection_priority(625, true));
+        assert!(selection_score(Move::Diag(0, 0), 600) > selection_score(Move::Horizontal(0), 610));
+        assert!(selection_score(Move::Diag(0, 0), -300) < selection_score(Move::Horizontal(0), -200));
+    }
+
+    #[test]
+    fn opponent_forcing_checks_precede_defense_width_pruning() {
+        let fixture: serde_json::Value =
+            serde_json::from_str(include_str!("../fixtures/counter-forcing.json")).unwrap();
+        let mut board = serde_json::from_value::<Request>(fixture["request"].clone())
+            .unwrap().into_board().unwrap();
+        let before = board.clone();
+        let bad = Move::Diag(12 * 16 + 13, 1);
+        let mut search = Search::new(0, 30_000.0, 1_000_000);
+        let choices = search.moves(&mut board, 1, true).unwrap();
+        assert!(choices.threatened);
+        assert_eq!(search.refuted.get(&bad), Some(&3));
+        assert_eq!(search.counterplay.len(), 16, "check every legal save before pruning");
+        assert_eq!(choices.choices.len(), 1);
+        assert!(!search.refuted.contains_key(&choices.choices[0].action));
+        assert_eq!(before.position_key(), board.position_key());
+        assert_eq!(before.horizontal, board.horizontal);
+        assert_eq!(before.vertical, board.vertical);
+        assert_eq!(before.diagonals, board.diagonals);
+        assert_eq!((before.current, before.alive), (board.current, board.alive));
+        // A real proof beats even an optimistic strategic score, and does not
+        // get reinstated by the ordinary attack or diagonal preferences.
+        search.prioritize_attack = true;
+        search.root_attacks.insert(bad);
+        assert!(search.priority(bad, WIN) < search.priority(choices.choices[0].action, -WIN));
+    }
+
+    #[test]
+    fn interrupted_counterplay_is_unknown_and_restores_every_placement() {
+        let fixture: serde_json::Value =
+            serde_json::from_str(include_str!("../fixtures/counter-forcing.json")).unwrap();
+        let mut board = serde_json::from_value::<Request>(fixture["request"].clone())
+            .unwrap().into_board().unwrap();
+        let before = board.clone();
+        for limit in [0, 3, 12] {
+            let mut search = Search::new(0, 30_000.0, limit);
+            let mut choices = [Move::Diag(12 * 16 + 13, 1), Move::Diag(12 * 16 + 11, 0)]
+                .map(|action| Ranked { action, score: 123, own_signature: 0, attack: false });
+            search.check_counterplay(&mut board, &mut choices);
+            assert!(search.refuted.is_empty());
+            assert!(choices.iter().all(|r| r.score == 123));
+            assert!(search.counterplay.iter().all(|r| r.stats.status == "budget" && r.stats.proof.is_none()));
+            assert!(search.nodes <= limit);
+            assert_eq!(before.position_key(), board.position_key());
+            assert_eq!(before.horizontal, board.horizontal);
+            assert_eq!(before.vertical, board.vertical);
+            assert_eq!(before.diagonals, board.diagonals);
+            assert_eq!((before.current, before.alive), (board.current, board.alive));
+        }
     }
 
     #[test]
@@ -164,6 +217,34 @@ mod tests {
             .choices
             .iter()
             .any(|r| matches!(r.action, Move::Diag(c, _) if c / 16 == 13)));
+    }
+
+    #[test]
+    fn root_keeps_both_safe_orientations_at_each_selected_location() {
+        let fixture: serde_json::Value =
+            serde_json::from_str(include_str!("../fixtures/attack-initiative.json")).unwrap();
+        let mut board = serde_json::from_value::<Request>(fixture["request"].clone())
+            .unwrap().into_board().unwrap();
+        for _ in 0..4 {
+            let mut search = Search::new(1, 30_000.0, 1_000_000);
+            let candidates = search.moves(&mut board, 12, true).unwrap();
+            let mut pairs = 0;
+            for r in &candidates.choices {
+                if let Move::Diag(cell, ori) = r.action {
+                    let other = Move::Diag(cell, 1 - ori);
+                    board.put(other, board.current);
+                    let safe = !board.encloses(board.current) && trace(&board, 0, false).hits & 2 == 0;
+                    board.remove(other);
+                    if safe {
+                        assert!(candidates.choices.iter().any(|r| r.action == other));
+                        pairs += 1;
+                    }
+                }
+            }
+            assert!(pairs >= 2);
+            assert!(candidates.choices.len() <= 24);
+            board = rotate(&board);
+        }
     }
 }
 #[derive(Clone, Copy)]
@@ -213,6 +294,9 @@ pub struct Search {
     pub minimum_depth: u8,
     iterations: Vec<SearchIteration>,
     partial_iteration: Option<SearchIteration>,
+    forcing: Option<ForcingStats>,
+    counterplay: Vec<CounterplayRecord>,
+    refuted: HashMap<Move, u8>,
 }
 
 impl Search {
@@ -248,6 +332,9 @@ impl Search {
             minimum_depth: 0,
             iterations: Vec::new(),
             partial_iteration: None,
+            forcing: None,
+            counterplay: Vec::new(),
+            refuted: HashMap::new(),
         }
     }
     fn check(&self) -> Result<(), Interrupted> {
@@ -583,17 +670,15 @@ impl Search {
                     selection_priority(
                         ranked.score,
                         self.prioritize_attack && ranked.attack,
-                        matches!(ranked.action, Move::Diag(..)),
                     ),
-                    ranked.score,
+                    selection_score(ranked.action, ranked.score),
                 ) > (
                     self.fallback_safe,
                     selection_priority(
                         old.score,
                         self.prioritize_attack && old.attack,
-                        matches!(old.action, Move::Diag(..)),
                     ),
-                    old.score,
+                    selection_score(old.action, old.score),
                 )
             });
             if better {
@@ -656,6 +741,7 @@ impl Search {
         let mut ranked = Vec::new();
         let mut complete = true;
         let mut per_cell = HashMap::new();
+        let mut root_locations = HashSet::new();
         let mut regions = [0usize; 9];
         'candidates: for candidate in raw {
             let mut pair = vec![candidate.action];
@@ -685,7 +771,7 @@ impl Search {
                     r.score += priorities[&action];
                     let cell = planning::cell_of(board, action);
                     let signature = (cell, r.own_signature);
-                    if !threatened && matches!(action, Move::Diag(..)) {
+                    if !root && !threatened && matches!(action, Move::Diag(..)) {
                         if let Some(&i) = per_cell.get(&signature) {
                             let old: &mut Ranked = &mut ranked[i];
                             if r.score > old.score {
@@ -695,20 +781,35 @@ impl Search {
                         }
                     }
                     let group = planning::region(board, board.current, action);
+                    let location = match action {
+                        Move::Diag(cell, _) => Move::Diag(cell, 0),
+                        other => other,
+                    };
+                    // At the root, budget locations rather than orientations.
+                    // Equal own beams say nothing about the opponent's future
+                    // reflections. Search both orientations without crowding
+                    // out the other spatial routes from the shortlist.
+                    let paired = root && root_locations.contains(&location);
                     if !threatened
+                        && !paired
                         && regions[group] >= width.div_ceil(3).max(2)
                         && ranked.len() >= width / 2
                     {
                         continue;
                     }
-                    if !threatened && matches!(action, Move::Diag(..)) {
+                    if !root && !threatened && matches!(action, Move::Diag(..)) {
                         per_cell.insert(signature, ranked.len());
                     }
-                    regions[group] += 1;
+                    if !paired {
+                        regions[group] += 1;
+                    }
+                    if root {
+                        root_locations.insert(location);
+                    }
                     ranked.push(r);
                 }
             }
-            if ranked.len() >= width {
+            if (if root { root_locations.len() } else { ranked.len() }) >= width {
                 complete = visited.len() == raw_len;
                 break;
             }
@@ -832,7 +933,16 @@ impl Search {
                         0
                     };
         }
-        ranked.sort_by(|a, b| b.score.cmp(&a.score).then_with(|| a.action.cmp(&b.action)));
+        if root {
+            // Check ALL legal saves before the strategic shortlist can hide
+            // the one that escapes a forcing sequence.
+            self.check_counterplay(board, &mut ranked);
+        }
+        ranked.sort_by(|a, b| {
+            self.refuted.contains_key(&a.action).cmp(&self.refuted.contains_key(&b.action))
+                .then_with(|| b.score.cmp(&a.score))
+                .then_with(|| a.action.cmp(&b.action))
+        });
         let complete = legal_count <= width;
         if root && ranked.len() > width {
             // Reserve representatives of different blocking regions/families,
@@ -876,6 +986,47 @@ impl Search {
             complete,
         })
     }
+    fn check_counterplay(&mut self, board: &mut Board, candidates: &mut [Ranked]) {
+        if board.alive.count_ones() != 2 || candidates.len() <= 1 {
+            return;
+        }
+        let old_current = board.current;
+        let old_alive = board.alive;
+        // Share a bounded tactical allowance fairly. A costly first candidate
+        // cannot consume the allowance for every other candidate. Unused time
+        // and nodes flow to the remaining checks, not outside the turn budget.
+        let deadline = now_ms() + ((self.deadline - now_ms()).max(0.0) * 0.3).min(4000.0);
+        let mut nodes_left = (self.max_nodes.saturating_sub(self.nodes) / 3).min(40_000);
+        let count = candidates.len();
+        for (index, candidate) in candidates.iter_mut().enumerate() {
+            let remaining = count - index;
+            board.put(candidate.action, old_current);
+            settle_next(board);
+            let mut solver = ForcingSearch::new(
+                board,
+                (deadline - now_ms()).max(0.0) / remaining as f64,
+                nodes_left / remaining as u64,
+                Vec::new(),
+            );
+            // This is an attack-count bound independent of strategic ply
+            // depth. A shallow alpha-beta horizon must not disable this check.
+            let (proof, stats) = solver.run(board, 4);
+            board.current = old_current;
+            board.alive = old_alive;
+            board.remove(candidate.action);
+            self.nodes += stats.nodes;
+            nodes_left = nodes_left.saturating_sub(stats.nodes);
+            if let Some(proof) = proof {
+                self.refuted.insert(candidate.action, proof.turns);
+                candidate.score = -WIN + 2 * i32::from(proof.turns);
+            }
+            self.counterplay.push(CounterplayRecord {
+                action: Action::from_move(candidate.action, board.size),
+                stats,
+            });
+        }
+    }
+
     fn potential(&mut self, board: &Board, color: u8, targets: u8) -> (i32, i32, i32) {
         // Optical connectivity is independent of whose turn it is. Reuse the
         // maps summarized while ranking a block when its resulting position
@@ -1111,7 +1262,10 @@ impl Search {
             "比较对手的应对后，选择兼顾连接与防守的一手。".into()
         };
         if self.preferred_diagonal {
-            self.reason.push_str("同类候选优先选择斜镜。");
+            self.reason.push_str("同类候选评分接近，优先选择斜镜。");
+        }
+        if !self.refuted.is_empty() && !self.refuted.contains_key(&action) {
+            self.reason.push_str(&format!("已避开 {} 手被证明会遭连续强攻的候选。", self.refuted.len()));
         }
     }
     fn principal_line(&self, board: &Board, first: Move, limit: usize) -> Vec<Action> {
@@ -1164,6 +1318,31 @@ impl Search {
         });
         self.candidates = moves.len();
         if moves.is_empty() {
+            if generated.threatened && generated.complete && board.alive.count_ones() == 2 {
+                // The witness-path set is exhaustive for saving moves, not for
+                // all legal moves. If every path intersection is illegal, the
+                // old fallback stayed empty and reported an engine error.
+                // Play a legal losing move so normal turn settlement ends play.
+                if self.fallback.is_none() {
+                    let actions: Vec<_> = board.all_moves().collect();
+                    for action in actions {
+                        board.put(action, board.current);
+                        let legal = !board.encloses(board.current);
+                        board.remove(action);
+                        if legal {
+                            self.fallback = Some(Ranked { action, score: -WIN, own_signature: 0, attack: false });
+                            break;
+                        }
+                    }
+                }
+                if let Some(fallback) = &mut self.fallback {
+                    fallback.score = -WIN;
+                    self.stop_reason = "no-defense";
+                    self.completed_score = -WIN;
+                    self.reason = "已穷尽当前攻击的合法防守，无法挡住；按正常回合结算胜负。".into();
+                    return Some(fallback.action);
+                }
+            }
             self.reason = "已检查所有即时防守，当前没有能守住的合法落子。".into();
             return self.fallback.map(|r| r.action);
         }
@@ -1181,6 +1360,43 @@ impl Search {
             self.explain(selected, true);
             return Some(selected);
         }
+        if board.alive.count_ones() == 2 && max_depth >= 3 {
+            // A small positive-only tactical pass can prove a forcing line
+            // without searching every quiet development move. Its AND nodes
+            // never prune legal defenses. Reserve most time for normal play.
+            let remaining = (self.deadline - now_ms()).max(0.0);
+            let mut forcing = ForcingSearch::new(
+                board,
+                (remaining * 0.2).min(4000.0),
+                (self.max_nodes.saturating_sub(self.nodes) / 4).min(20_000),
+                moves.iter().filter(|r| r.attack).map(|r| r.action).collect(),
+            );
+            let (proof, stats) = forcing.run(board, max_depth.div_ceil(2).min(4));
+            self.nodes += stats.nodes;
+            self.forcing = Some(stats);
+            if let Some(proof) = proof {
+                self.stop_reason = "forcing-win";
+                self.completed_score = WIN;
+                self.fallback = Some(Ranked { action: proof.action, score: WIN, own_signature: 0, attack: true });
+                self.reason = format!(
+                    "已验证连续强攻：无论对方怎样合法防守，至多再落 {} 面进攻镜即可形成无法化解的攻击。",
+                    proof.turns
+                );
+                return Some(proof.action);
+            }
+        }
+        if !generated.threatened {
+            self.check_counterplay(board, &mut moves);
+        }
+        // Refresh the fallback before any iterative-search interruption. A
+        // refuted candidate must not survive via the old heuristic incumbent.
+        moves.sort_by(|a, b| {
+            self.priority(b.action, b.score).cmp(&self.priority(a.action, a.score))
+                .then_with(|| selection_score(b.action, b.score).cmp(&selection_score(a.action, a.score)))
+                .then_with(|| a.action.cmp(&b.action))
+        });
+        self.fallback = Some(moves[0]);
+        selected = moves[0].action;
         let old_current = board.current;
         let old_alive = board.alive;
         let min_depth = 4.max(self.minimum_depth);
@@ -1203,6 +1419,10 @@ impl Search {
             // compare challengers against it at the SAME depth.
             ordered.sort_by_key(|candidate| candidate.action != selected);
             for candidate in &ordered {
+                if let Some(&turns) = self.refuted.get(&candidate.action) {
+                    results.push((candidate.action, -WIN + 2 * i32::from(turns), candidate.score));
+                    continue;
+                }
                 if self.check().is_err() {
                     interrupted = true;
                     break;
@@ -1242,7 +1462,7 @@ impl Search {
                             && results.iter().any(|r| {
                                 !matches!(r.0, Move::Diag(..))
                                     && r.1 > score
-                                    && self.priority(r.0, r.1) + 1 == self.priority(action, score)
+                                    && self.priority(r.0, r.1) == self.priority(action, score)
                             });
                     }
                 }
@@ -1294,7 +1514,7 @@ impl Search {
                     && results.iter().any(|r| {
                         !matches!(r.0, Move::Diag(..))
                             && r.1 > score
-                            && self.priority(r.0, r.1) + 1 == self.priority(action, score)
+                            && self.priority(r.0, r.1) == self.priority(action, score)
                     });
             }
             let stable = previous.is_some_and(|(action, score): (Move, i32)| {
@@ -1347,16 +1567,20 @@ impl Search {
             plans: self.root_plans.len(),
             stop_reason: self.stop_reason.into(),
             reason: self.reason.clone(),
+            forcing: self.forcing.take(),
+            counterplay: std::mem::take(&mut self.counterplay),
             iterations: std::mem::take(&mut self.iterations),
             partial_iteration: self.partial_iteration.take(),
         }
     }
 
     fn priority(&self, action: Move, score: i32) -> u8 {
+        if self.refuted.contains_key(&action) {
+            return 0;
+        }
         selection_priority(
             score,
             self.prioritize_attack && self.root_attacks.contains(&action),
-            matches!(action, Move::Diag(..)),
         )
     }
 }

@@ -1,7 +1,19 @@
 <script setup lang="ts">
+import { defaultDshProfileId } from '../ai/config'
 import { computed } from 'vue'
 import { aiTest, exportAiTestGame, startAiTestGame } from '../ai/test-session'
-import { state } from '../store'
+import { aiProviderFor, dispatch, state } from '../store'
+import type { AiProvider } from '../ai/providers'
+import DshSettings from './DshSettings.vue'
+import DshProfileSelect from './DshProfileSelect.vue'
+import { appBase } from '../replay/navigation'
+
+function changeProvider(event: Event) {
+  dispatch({ kind: 'ai-provider-setting', color: state.players[0], target: 'red', provider: (event.target as HTMLSelectElement).value as AiProvider })
+  if (aiProviderFor('red') === 'dsh' && !state.aiProfileIds['red'] && defaultDshProfileId()) {
+    dispatch({ kind: 'ai-profile-setting', color: state.players[0], target: 'red', profileId: defaultDshProfileId() })
+  }
+}
 
 const storageText = computed(() => {
   switch (aiTest.storageStatus) {
@@ -17,15 +29,25 @@ const storageText = computed(() => {
   <section class="ai-test-panel" aria-label="AI 测试记录">
     <h2>AI 测试</h2>
     <p class="fixed-rules">16 × 16 · 无棋钟 · 边界反射<br />蓝方人类 · 红方 AI</p>
-    <label class="budget-control">
-      AI 每步最多思考
+    <label class="budget-control">AI 实现
+      <select :value="aiProviderFor('red')" aria-label="测试 AI 实现" @change="changeProvider">
+        <option value="wasm">Rust / WASM</option>
+        <option value="dsh">DSH</option>
+      </select>
+    </label>
+    <DshProfileSelect v-if="aiProviderFor('red') === 'dsh'" :model-value="state.aiProfileIds.red" label="红方 LLM 配置" @update:model-value="dispatch({ kind: 'ai-profile-setting', color: state.players[0], target: 'red', profileId: $event })" />
+    <DshSettings v-if="aiProviderFor('red') === 'dsh'" />
+    <p v-if="aiProviderFor('red') === 'dsh'" class="budget-hint">DSH 持续调用模型与工具，不受 WASM 思考上限限制；可随时取消。</p>
+    <label v-else class="budget-control">
+      WASM 每步最多思考
       <select v-model.number="state.aiBudgetMs" aria-label="AI 每步思考上限">
         <option :value="3000">3 秒</option>
         <option :value="10000">10 秒</option>
         <option :value="30000">30 秒</option>
       </select>
     </label>
-    <p class="budget-hint">可提前落子；修改上限会重新计算当前搜索。</p>
+    <p v-if="aiProviderFor('red') === 'wasm'" class="budget-hint">可提前落子；修改上限会重新计算当前搜索。</p>
+    <p class="budget-hint">切换实现会取消当前搜索，并记录这次变更。</p>
     <p class="game-id">本局 <code>{{ aiTest.gameId || '准备中' }}</code></p>
     <p class="record-count">已记录 {{ aiTest.moveCount }} 步<span v-if="aiTest.archivedCount"> · 历史 {{ aiTest.archivedCount }} 局</span></p>
     <p class="storage-status" :class="aiTest.storageStatus" role="status" aria-live="polite">
@@ -38,6 +60,7 @@ const storageText = computed(() => {
       <button class="btn-plain" :disabled="!aiTest.gameId" @click="exportAiTestGame()">导出当前记录</button>
     </div>
     <p class="archive-hint">新对局会保留旧记录。</p>
+    <a :href="`${appBase()}replays`">观看 DSH vs 规则 AI 回放</a>
   </section>
 </template>
 

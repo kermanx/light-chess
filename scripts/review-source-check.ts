@@ -47,8 +47,8 @@ const evaluate: BatchEvaluator = async (boards) => {
 }
 
 state.size = 6
-const engines = { kind: 'nn' as const, modelId: model.id }
-startLocal(2, ['blue', 'red'], { blue: engines, red: engines })
+const nn = { modelId: model.id }
+startLocal(2, ['blue', 'red'], { blue: 'nn', red: 'nn' }, {}, undefined, { blue: nn, red: nn })
 dispatchAi({ kind: 'setup', color: 'blue', home: { x: 1, y: 1, dir: 0 } } as never)
 dispatchAi({ kind: 'setup', color: 'red', home: { x: 4, y: 4, dir: 2 } } as never)
 dispatchAi({ kind: 'edge', color: 'blue', id: 'h:2:2' } as never)

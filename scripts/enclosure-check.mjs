@@ -14,7 +14,7 @@ try {
   const errors = []
   page.on('pageerror', error => errors.push(error.message))
   await page.goto(`http://127.0.0.1:${vite.httpServer.address().port}/`)
-  assert.equal(await page.locator('.card').count(), 4, '首页包含挑战 AI 入口')
+  assert.equal(await page.locator('.card').count(), 3, '单机与 AI 对战共用一个入口')
   assert.equal(await page.locator('input, select, .count-ctl').count(), 0, '首页不显示设置')
   if (process.env.LOBBY_SCREENSHOT_DIR) {
     await page.screenshot({ path: `${process.env.LOBBY_SCREENSHOT_DIR}/lobby-desktop.png` })

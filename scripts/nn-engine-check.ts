@@ -128,8 +128,8 @@ async function selfPlay(size: 6 | 8, seed: number, stochastic: boolean) {
   const backend = makeBackend(model, session)
   const rng = mulberry32(seed)
   state.size = size
-  const engines = { kind: 'nn' as const, modelId: model.id, stochastic }
-  startLocal(2, ['blue', 'red'], { blue: engines, red: engines })
+  const nn = { modelId: model.id, stochastic }
+  startLocal(2, ['blue', 'red'], { blue: 'nn', red: 'nn' }, {}, undefined, { blue: nn, red: nn })
   const cap = numActions(size) // 上限手数：动作空间大小（远超正常对局长度）
   let plies = 0
   while (state.phase !== 'over' && plies < cap) {
@@ -192,8 +192,8 @@ async function selfPlayMcts(size: 6 | 8, seed: number, budgetMs: number, sims?: 
   const evaluate = makeBatchEvaluator(model, session)
   const rng = mulberry32(seed)
   state.size = size
-  const engines = { kind: 'nn' as const, modelId: model.id }
-  startLocal(2, ['blue', 'red'], { blue: engines, red: engines })
+  const nn = { modelId: model.id }
+  startLocal(2, ['blue', 'red'], { blue: 'nn', red: 'nn' }, {}, undefined, { blue: nn, red: nn })
   const cap = numActions(size)
   let plies = 0
   let simsTotal = 0
@@ -247,8 +247,8 @@ await selfPlayMcts(6, 626262, 3000, 150) // sims 定额模式（训练/评测标
   const evaluate = makeBatchEvaluator(model, session)
   const rng = mulberry32(99)
   state.size = 6
-  const engines = { kind: 'nn' as const, modelId: model.id }
-  startLocal(2, ['blue', 'red'], { blue: engines, red: engines })
+  const nn = { modelId: model.id }
+  startLocal(2, ['blue', 'red'], { blue: 'nn', red: 'nn' }, {}, undefined, { blue: nn, red: nn })
   // 双方固定选家（确定性，免去 setup 随机性）
   for (const color of state.players) {
     const req = makeAiRequest(board, { phase: 'setup', players: state.players, current: color, dead: [], budgetMs: 1 })

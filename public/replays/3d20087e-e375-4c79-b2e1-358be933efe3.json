@@ -1,0 +1,4355 @@
+{
+  "format": "light-chess-replay",
+  "version": 1,
+  "id": "3d20087e-e375-4c79-b2e1-358be933efe3",
+  "title": "DSH vs 规则 AI",
+  "createdAt": "2026-10-29T06:01:39.791Z",
+  "players": {
+    "blue": "DSH",
+    "red": "规则 AI · Rust / WASM"
+  },
+  "initial": {
+    "size": 16,
+    "boundaryReflects": true,
+    "homes": {
+      "blue": {
+        "x": 2,
+        "y": 2,
+        "dir": 0
+      },
+      "red": {
+        "x": 13,
+        "y": 13,
+        "dir": 2
+      }
+    },
+    "edges": [
+      [
+        "h:2:3",
+        {
+          "color": "blue"
+        }
+      ],
+      [
+        "v:2:2",
+        {
+          "color": "blue"
+        }
+      ],
+      [
+        "h:2:2",
+        {
+          "color": "blue"
+        }
+      ],
+      [
+        "v:14:13",
+        {
+          "color": "red"
+        }
+      ],
+      [
+        "h:13:14",
+        {
+          "color": "red"
+        }
+      ],
+      [
+        "h:13:13",
+        {
+          "color": "red"
+        }
+      ]
+    ],
+    "diags": [],
+    "current": "blue"
+  },
+  "moves": [
+    {
+      "color": "blue",
+      "action": {
+        "kind": "diag",
+        "x": 2,
+        "y": 13,
+        "ori": "\\"
+      },
+      "actor": "dsh",
+      "rationale": "(2,13) 放 \"\\\"：我方沿 x=2 向下的激光在此转为向东，沿第 13 行直入红方基地 (13,13)，形成强制攻击。该格不在第 2 行，不会被红方反过来利用。预计红方必须立即在第 13 行（x=3..12）放边镜或斜镜封堵；若它放斜镜，该镜反而可能成为我后续沿其列注入的跳板。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 3,
+        "y": 13,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "先挡住当前攻击，再比较反击与后续连接机会。",
+      "thinkingMs": 377.2009170000092,
+      "search": {
+        "nodes": 2123,
+        "depth": 4,
+        "mode": "defense",
+        "stopReason": "stable"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "v:4:2",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "在第 2 行 x=4 处放竖边镜：红方任何沿第 2 行向西、经 (k,2) 斜镜折射进我基地的光束都会先撞上它被弹回，永久封死红方 (13,2) 以及未来 (k≥4,2) 的一手斩杀。边镜只会原路反弹，不会被红方反过来利用。预计红方唯一剩下的一手威胁是经第 3 列注入的 (3,2) 斜镜；若它这么走，我下步用 h:3:3 切断第 3 列即可完全免疫，然后转入进攻。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 3,
+        "y": 2,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "无需防守，优先直接接通攻击，迫使对方应对；继续比较其防守与反击。",
+      "thinkingMs": 4940.945667000022,
+      "search": {
+        "nodes": 22428,
+        "depth": 5,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:3:3",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方经第 3 列的一手杀必须立刻切断：在 y=3（(3,2) 与 (3,3) 之间）放横边镜，红方沿第 3 列北上的光束被弹回，永远到不了 (3,2) 的斜镜，本回合威胁解除。同时这个切断只影响第 3 列 y≥3 的部分，我方由红方 (3,13) 斜镜折射得到的第 3 列光束仍然存在（y=3..13），保留了我从第 3 列转入第 4~12 行的进攻通道。预计红方转向重新建立新的进攻列（需要多步），我利用这段时间开始搭进攻线路。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 13,
+        "y": 0,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "推进已验证的连接方案；还需 1 面镜子接通，对方仍可干预。",
+      "thinkingMs": 3129.7747500000987,
+      "search": {
+        "nodes": 14670,
+        "depth": 5,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:13:3",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方真正的杀路是：沿第 13 列上到第 0 行→向西→(3,0) 南下第 3 列→(3,2) 折入我基地。在 y=3（(13,2)/(13,3) 之间）切断第 13 列后，红光束到不了第 0 行，红方 (13,0) 斜镜和整条第 0 行通路全部作废，刚放下的 (3,0) 也变成死镜。这比只堵 (3,0) 更进一步：红方要重建上端通路必须重新开一列，至少多花两步。预计红方会先补防守（我尚未威胁）或尝试开新列；我下步开始搭真正的进攻线。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 3,
+        "y": 0,
+        "ori": "\\"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 3012.336457999889,
+      "search": {
+        "nodes": 13459,
+        "depth": 5,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:3:1",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方已把 (3,0) 斜镜摆好，只要拿到第 0 行光束就能南下一入 (3,2) 杀我。在 y=1（(3,0)/(3,1) 之间）放横边镜后，任何自上而下穿过第 3 列的光束都在 y=1 被弹回，(3,0) 与 (3,2) 两面红斜镜彻底失效。此时红方四面子镜仅 (3,13) 还有用，进攻重心基本被瓦解；我保留 v:4:2、h:3:3 的既有防线，下一步开始搭自己的进攻线。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 5,
+        "y": 13,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "推进已验证的连接方案；还需 2 面镜子接通，对方仍可干预。",
+      "thinkingMs": 3183.7955000000075,
+      "search": {
+        "nodes": 14811,
+        "depth": 5,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "v:4:1",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方新计划是：第 13 行→(5,13)→第 5 列上到顶部→(5,1) 转东/西行第 1 行→(3,1) 南下一入 (3,2) 杀我。在 x=4、y∈[1,2] 放竖边镜后，第 1 行的红光束到不了 (3,1)，而 (3,0) 向下的路已被 h:3:1 堵死。至此 (3,1)/(3,2) 两个格子内不可能有任何红光束，红方 (3,2) 斜镜永久作废，(3,2) 以西也无路可入我基地。预计红方又浪费两面子镜，接下来数步可以放心转攻。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 5,
+        "y": 0,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "推进已验证的连接方案；还需 3 面镜子接通，对方仍可干预。",
+      "thinkingMs": 5206.97583300015,
+      "search": {
+        "nodes": 33498,
+        "depth": 6,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "kind": "diag",
+        "ori": "/",
+        "x": 12,
+        "y": 13
+      },
+      "actor": "dsh",
+      "rationale": "在 (12,13) 放 \"/\" 作为永久炮台：由于己方镜子半透明，任何进入第 12 列的光束都会在此向东折向红方基地（南向光会透射、经底边反弹后北向再折东；北向光直接折东），两种朝向均可。它也永久占据了贴着红家西侧的唯一关键格，红方无法再用它做防。下步我只需用 (12,2) 把第 2 行的光束引入第 12 列即可成杀；若红方不理会第 12 列，我即可得手。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 13,
+        "y": 3,
+        "ori": "\\"
+      },
+      "actor": "rust-wasm",
+      "rationale": "推进已验证的连接方案；还需 3 面镜子接通，对方仍可干预。",
+      "thinkingMs": 1242.7979999999516,
+      "search": {
+        "nodes": 5342,
+        "depth": 4,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "kind": "diag",
+        "ori": "\\",
+        "x": 12,
+        "y": 2
+      },
+      "actor": "dsh",
+      "rationale": "(12,2) 把第 2 行的东向光束引入第 12 列，经 (12,13) 炮台折东，立即形成实际命中（路径：x=2 向下→第 13 行→借红 (3,13) 斜镜沿第 3 列北上→借红 (3,2) 斜镜东行第 2 行→(12,2) 南下一→(12,13) 东入红家）。红方必须花一手封堵这条线（第 2 列/第 3 列/第 2 行/第 12 列任一处理论上都能堵），因此无论它堵哪里都消耗一面永久镜；同时 (12,13) 炮台保留，以后任何第 12 列光束都能直接成杀。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 12,
+        "y": 3,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "先挡住当前攻击，再比较反击与后续连接机会。",
+      "thinkingMs": 10000.26304199989,
+      "search": {
+        "nodes": 20746,
+        "depth": 5,
+        "mode": "defense",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:12:13",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "在 (12,12)/(12,13) 之间放横边镜：己方边镜半透半反射，我沿第 12 列南下的光束仍可半透到达 (12,13) 炮台折东，而红方任何想要在 y=13 这一缝塞边镜封堵的可能被永久占掉。这是“靠近炮台的供给”路线的关键一步：以后在 (12,12) 放斜镜，无论来自第 12 列方向还是第 12 行方向的光束都能经此炮台射入红家，红方每次只能堵一边。红方目前仍无任何一手威胁。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 12,
+        "y": 4,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "推进已验证的连接方案；还需 3 面镜子接通，对方仍可干预。",
+      "thinkingMs": 1368.9000829998404,
+      "search": {
+        "nodes": 5400,
+        "depth": 4,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "v:12:13",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "封住炮台格的西侧：己方边镜对红光束全反射、对我的光半透明。这样以后若有东向光束沿第 13 行抵达 (11,13)/(12,13) 一带，就会半透穿过此边镜与 (12,13) 炮台直入红家，而红方无法在这最后一格塞镜。副作用对我有利：红方沿第 13 行向西的光束会在 x=12 被弹回，红方的第 2、3 列光束供给大幅减少。红方仍无任何一手威胁。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 12,
+        "y": 5,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "推进已验证的连接方案；还需 3 面镜子接通，对方仍可干预。",
+      "thinkingMs": 10000.10295900004,
+      "search": {
+        "nodes": 37988,
+        "depth": 5,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:12:14",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "至此炮台格 (12,13) 的北、西、南三面都由我的边镜封住（对我半透、对红全反射），只剩东侧红家开口。这样红方无法在 (12,14) 与炮台之间的任何缝隙塞镜，唯一的供给路线就是从 (12,14) 向北的光束。下一步我只需在 (12,14) 放斜镜并给它一条沿第 14 行的光束即可成杀；红方只能在 (12,14) 本体或第 14 行的供给线上拦，而这两处我都可以用同样的“己方半透镜”手法继续加固。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 2,
+        "y": 3,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "推进已验证的连接方案；还需 3 面镜子接通，对方仍可干预。",
+      "thinkingMs": 2505.966333999764,
+      "search": {
+        "nodes": 5291,
+        "depth": 4,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "kind": "diag",
+        "ori": "\\",
+        "x": 1,
+        "y": 0
+      },
+      "actor": "dsh",
+      "rationale": "红方 (2,3) 把我沿第 2 列的光束在第 3 行切断，(2,13) 镜与炮台都断了供给，我的光束被困在基地区域。在 (1,0) 放 \"\\\" 后，我沿第 0 行向东的那半束光会折向南方沿第 1 列下行，从而一举打通第 1~15 行的全部行通道（第 1 列不经过红方任何镜，也不在第 2 行，不会被反用）。有了它，我可以用 (1,y) 斜镜取任意行 y 的光束，再用 (12,14) 向北供给炮台成杀。红方仍无一手威胁。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 2,
+        "y": 0,
+        "ori": "\\"
+      },
+      "actor": "rust-wasm",
+      "rationale": "推进已验证的连接方案；还需 2 面镜子接通，对方仍可干预。",
+      "thinkingMs": 9837.375791999977,
+      "search": {
+        "nodes": 49631,
+        "depth": 6,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "kind": "diag",
+        "ori": "\\",
+        "x": 1,
+        "y": 14
+      },
+      "actor": "dsh",
+      "rationale": "用第 1 列“高速公路”在第 14 行取光：(1,14) 的 \"\\\" 会把沿第 1 列南北行的光束分别折成沿第 14 行的东、西两向，于是整条第 14 行被覆盖。这为 (12,14) 向北供给炮台 (12,13) 铺好最后一格：一旦 (12,14) 成镜，光束就会穿过 h:12:14 与炮台直入红家。此镜在第 1 列、不在第 2 行，不会给红方任何反用机会；红方目前仍无一手威胁。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 2,
+        "y": 1,
+        "ori": "\\"
+      },
+      "actor": "rust-wasm",
+      "rationale": "减少对方下一步接通攻击的候选位置，兼顾后续防守。",
+      "thinkingMs": 4095.813207999803,
+      "search": {
+        "nodes": 17130,
+        "depth": 5,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:2:7",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方已在我家门口搭出一条杀路：第 13 列→(13,3)→第 3 行→(2,3)→第 2 列南下→借我的 (2,13) 镜转东→(5,13)→第 5 列→(5,0)→第 0 行→(2,0)、(2,1)→(3,1) 新镜→经 v:4:1 反弹→(3,2)→入我基地。在 y=7 处切断第 2 列后，红光束无法再沿第 2 列下到我 (2,13) 的位置，整条杀路断裂并已被验证无效。这条横边镜对我毫无损失（我的第 2 列光束只到 y≤3）。预计红方会尝试新路线，我继续加固并寻找反攻机会。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 1,
+        "y": 3,
+        "ori": "\\"
+      },
+      "actor": "rust-wasm",
+      "rationale": "推进已验证的连接方案；还需 2 面镜子接通，对方仍可干预。",
+      "thinkingMs": 5149.633165999781,
+      "search": {
+        "nodes": 20758,
+        "depth": 5,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "kind": "diag",
+        "ori": "\\",
+        "x": 15,
+        "y": 1
+      },
+      "actor": "dsh",
+      "rationale": "现在我的光束完整覆盖第 1 行（x=0..15），这是新的横向高速路。在 (15,1) 放 \"\\\" 把东行的半束光折向南方，沿第 15 列直下到第 15 行，于是第 2~15 行全部在我控制下，且第 15 列不经过红方任何斜镜。接下来可用 (15,14) 取西向的第 14 行光束，再在 (12,14) 向北穿过 h:12:14 供给 (12,13) 炮台直入红家。红方仍无一手威胁。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 5,
+        "y": 3,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "推进已验证的连接方案；还需 1 面镜子接通，对方仍可干预。",
+      "thinkingMs": 6739.341791999992,
+      "search": {
+        "nodes": 22805,
+        "depth": 5,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:2:1",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方又搭出一条杀路（第 3 行绕西→(5,3)→第 5 列→(5,0)→第 0 行→(2,0)→第 2 列→(2,1)→第 1 行→(3,1)→第 3 列→(3,2)→入我基地）。在 y=1（(2,0) 与 (2,1) 之间）放横边镜，红方从 (2,0) 南下的那一段在到达它自己的 (2,1) 斜镜前就被弹回，整条链被切断（已验证）。这条边镜对我是无害的：我的第 2 列北行光束在 y=1.5 就先到达红方的 (2,1) 镜，不受影响；我的第 1 行高速路也照常运作。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 1,
+        "y": 1,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "减少对方下一步接通攻击的候选位置，兼顾后续防守。",
+      "thinkingMs": 3132.125250000041,
+      "search": {
+        "nodes": 15322,
+        "depth": 5,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:1:2",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方这次绕道：第 3 行→(1,3)→第 1 列北上→(1,1)→第 1 行→(2,1)/(3,1)→经我的 v:4:1 反弹→(3,2)→入我基地。在 y=2（(1,1)/(1,2) 之间）放横边镜，切断第 1 列这段北上光，红方最后两个第 1 行源（(1,1) 与已被 h:2:1 断源的 (2,1)）全部报废；再加上 v:4:1 挡住来自东侧的第 1 行光束，(3,1) 这一格将不可能有红光束，(3,2) 斜镜永久失能。该边镜与我的第 1 行高速路平行，不影响我自己的光。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 0,
+        "y": 3,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 8162.398957999889,
+      "search": {
+        "nodes": 35978,
+        "depth": 6,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "kind": "diag",
+        "ori": "/",
+        "x": 1,
+        "y": 2
+      },
+      "actor": "dsh",
+      "rationale": "红方用 (2,3)、(3,0)、(2,0)、(2,1)、(1,1)、(1,3)、(0,3) 等斜镜把我围成一个小盒，我的外线全断。在 (1,2) 放 \"/\" 可让我沿第 1 列下来的光束折入第 2 行并向两侧扩散，重新在第 2 行建立双向覆盖，并试探向东（第 3 列→第 0/1 行）的连接。此格在第 1 列，不是第 2 行，不会被红方反向利用；红方当前仍无一手威胁。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 0,
+        "y": 0,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 3806.223000000231,
+      "search": {
+        "nodes": 17591,
+        "depth": 5,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "v:1:0",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方又一条杀路：第 3 行→(0,3)→第 0 列→(0,0)→第 0 行→借我的 (1,0) 镜下第 1 列→(1,1)→第 1 行→(3,1)→借我的 v:4:1 反弹→(3,2)→入我基地。在 x=1、y∈[0,1]（(0,0)/(1,0) 之间）放竖边镜后，红方沿第 0 行东行的光在到达我 (1,0) 镜前就被弹回，整条链断裂（已验证）。对我无影响：我的第 0 行光束只在 x=2、3 处。预计红方继续另寻绕道，我保持警戒继续堵。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 0,
+        "y": 1,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 3112.017417000141,
+      "search": {
+        "nodes": 16482,
+        "depth": 5,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "v:3:3",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方改从第 3 行最西端绕道：(0,3)→第 0 列→(0,1)→第 1 行→(3,1)→借 v:4:1→(3,2) 杀我。在 x=3、y∈[3,4] 处放竖边镜，把红方沿第 3 行西行的光在源头附近弹回，整条链断裂（已验证）。我的第 3 行光只在 x=1、2，不受影响。继续监控红方的新绕道。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 13,
+        "y": 14,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 6598.972083999775,
+      "search": {
+        "nodes": 25008,
+        "depth": 5,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:1:13",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方新路线：从红家沿第 13 列南下→(13,14)→第 14 行向西→借我 (1,14) 镜北���第 1 列→(1,3)→(0,3)→第 0 列→(0,1)→第 1 行→(3,1)→经 v:4:1→(3,2) 杀我。在 y=13（(1,12)/(1,13) 之间）切掉第 1 列后，红方无法从第 14 行那条线进入我家区域，整条链断裂（已验证）。该边镜与我当前被封在小范围内的光束无关。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 0,
+        "y": 5,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 5219.587834000122,
+      "search": {
+        "nodes": 19978,
+        "depth": 5,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "v:2:5",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方这次借自己的第 12 列斜镜链转到第 5 行，再从最西端 (0,5) 北上第 0 列与 (0,1)，最终仍走 (3,1)→我的 v:4:1→(3,2) 入我基地。在 x=2、y∈[5,6] 放竖边镜后，红方沿第 5 行西行的光在 x=2 处被弹回，无法到达 (0,5)，整条链断裂（已验证）。此边镜远在第 2 行以外，不影响我的光束，也不会造成禁围。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 0,
+        "y": 4,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 5605.68354200013,
+      "search": {
+        "nodes": 19855,
+        "depth": 5,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:0:4",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方把杀路改到第 4 行→(0,4)→第 0 列北上→(0,1)→第 1 行→(3,1)→v:4:1→(3,2)。在 y=4 切掉第 0 列后，从下方进入第 0 列的北上光全部被弹回，到不了 (0,1)；上方则已有 v:1:0 与第 3 行 v:3:3 的封堵。整条链断裂（已验证），且不涉及我自己的任何光束。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 1,
+        "y": 4,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 4945.401124999858,
+      "search": {
+        "nodes": 18812,
+        "depth": 5,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "v:3:4",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方的杀路已经延到第 4 行：(12,4)→第 4 行西行→最西端反弹→(1,4)→第 1 列北上→(1,3)→第 3 行→(0,3)→第 0 列→(0,1)→第 1 行→(3,1)→v:4:1→(3,2)。在 x=3、y∈[4,5] 处切断第 4 行，红光束无法到达西侧，整条链断裂（已验证 v:3:4 有效，而 h:1:3 无效）。继续监控。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 2,
+        "y": 5,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 4030.6385419997387,
+      "search": {
+        "nodes": 15297,
+        "depth": 5,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:2:4",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方借我的 v:2:5 边镜反弹后，用 (2,5) 斜镜沿第 2 列北上，再经 (2,3) 转到第 3 行与第 0 列，最终仍从 (3,1)→v:4:1→(3,2) 杀我。在 y=4 再切一刀第 2 列（现在 h:2:3、h:2:4、h:2:7 三道），红方沿第 2 列上升那段彻底断开，整条链断裂（已验证 h:2:4 有效）。与我被封的小范围光路无关。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 2,
+        "y": 4,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 4086.2315410003066,
+      "search": {
+        "nodes": 15583,
+        "depth": 5,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "v:2:4",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方在 (2,4) 再放斜镜，把沿第 2 列的攀爬转到第 4 行向西，再经 (1,4)→第 1 列→(1,3)→第 3 行→第 0 列→第 1 行→(3,1)→v:4:1→(3,2)。在 x=2、y∈[4,5] 处切断第 4 行，红光束从 (2,4) 往西就被弹回，整条链断裂（已验证）。家门口的封锁又厚一层。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 2,
+        "y": 6,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 4271.556499999948,
+      "search": {
+        "nodes": 14984,
+        "depth": 5,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "kind": "diag",
+        "ori": "/",
+        "x": 12,
+        "y": 14
+      },
+      "actor": "dsh",
+      "rationale": "红方目前没有一手威胁，我利用这个空隙完成炮台供弹结构：在 (12,14) 放 \"/\"，与已有的 h:12:14、h:12:13、v:12:13 一起，使炮台格 (12,13) 三面侧边都是我的半透镜。这样一来，只要将来有任何北向光束进入 (12,14)（例如来自第 14 行），就会穿过 h:12:14 与炮台直入红家，而红方无法在最后这一段塞镜。同时这也永久占了 (12,14) 这个关键格。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 0,
+        "y": 6,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 1480.440750000067,
+      "search": {
+        "nodes": 5338,
+        "depth": 4,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:0:5",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方换到第 6 行绕行：(0,6)→第 0 列北上→(0,4) 转向第 4 行东行→(1,4)→第 1 列→(1,3)→第 3 行→(0,3)→第 0 列北上→(0,1)→第 1 行→(3,1)→v:4:1→(3,2)。在 y=5 再切一刀第 0 列（现与 h:0:4 形成 y=4、y=5 双重封锁），红方沿第 0 列的北上一段被卡死，整条链断裂（已验证 h:0:5 有效）。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 1,
+        "y": 5,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 6186.912874999922,
+      "search": {
+        "nodes": 21127,
+        "depth": 5,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "v:1:5",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方这次从第 6 行绕到西缘后，借 (0,5) 转向第 5 行东行、再沿第 1 列北上（绕过我在 y=4、y=5 的第 0 列封锁）。在 x=1、y∈[5,6] 放竖边镜，红方从 (0,5) 往东一格就被弹回，无法进入第 1 列，整条链断裂（已验证 v:1:5 有效，而 h:1:4 禁围）。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 1,
+        "y": 6,
+        "ori": "\\"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 9438.403582999948,
+      "search": {
+        "nodes": 20136,
+        "depth": 5,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "v:2:6",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方从 (1,6) 沿第 1 列北上绕过我的 v:1:5（v:1:5 只挡东西向）。在 x=2、y∈[6,7] 处切断第 6 行后，红光束从 (2,6) 往西就过不去，整条链断裂（已验证 v:2:6 有效）。继续防守。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 2,
+        "y": 7,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 5741.755667000078,
+      "search": {
+        "nodes": 17444,
+        "depth": 5,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "kind": "diag",
+        "ori": "\\",
+        "x": 12,
+        "y": 15
+      },
+      "actor": "dsh",
+      "rationale": "红方暂时没有一手威胁，我继续把炮台供弹链补完：在 (12,15) 放 \"\\\" 后，只要第 15 行有西向光束，就会在此折北，依次穿过 (12,14)（我的半透镜）、h:12:14、炮台 (12,13)，最终东入红家；最后两格的边镜都是我的，红方无法塞镜。此子也永久占了 (12,15)，断了红方在这一线的可能。同时我继续盯住红方在西侧的新绕道。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 0,
+        "y": 7,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 8340.707832999993,
+      "search": {
+        "nodes": 20054,
+        "depth": 5,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "v:1:6",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方借我的 v:2:6 反弹后，经 (0,6) 沿第 6 行东行到它自己的 (1,6) 镜，再沿第 1 列北上绕过我的封锁。在 x=1、y∈[6,7] 处切断第 6 行，红光束在 x=1 就被弹回，到不了 (1,6)，整条链断裂（已验证 v:1:6 有效）。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 1,
+        "y": 7,
+        "ori": "\\"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 10000.274708000012,
+      "search": {
+        "nodes": 16676,
+        "depth": 4,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "v:2:7",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方沿 (2,7)→第 7 行西行→(1,7) 再沿第 1 列北上，绕过我在第 1 列的两道竖边镜。在 x=2、y∈[7,8] 处切断第 7 行，红光束在 x=2 被弹回，到不了 (1,7)，整条链断裂（已验证 v:2:7 有效）。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 2,
+        "y": 8,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 934.8486669999547,
+      "search": {
+        "nodes": 4793,
+        "depth": 4,
+        "mode": "attack",
+        "stopReason": "stable"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "v:2:8",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方沿第 2 列逐级下放斜镜（(2,5)…(2,8)），每级向第 k 行发射西向光，试图绕到西侧再北上。我在 (2,8) 的竖向边镜提前封住第 8 行这一级，红方的第 8 行光从 (2,8) 西行一格就被弹回。它与 h:2:7、v:2:7 等共同构成第 2 列的阶梯式封锁，红方每下一级我就在同一级封一刀。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 2,
+        "y": 9,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 1945.2213750001974,
+      "search": {
+        "nodes": 4990,
+        "depth": 4,
+        "mode": "attack",
+        "stopReason": "stable"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "v:2:9",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方继续沿第 2 列下放 (2,9)，并无可成的威胁。我同步在第 9 行封刀：红方这一级的西向光从 (2,9) 出发一格就被弹回，无法绕到西侧。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 2,
+        "y": 10,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 1797.0720000001602,
+      "search": {
+        "nodes": 4944,
+        "depth": 4,
+        "mode": "attack",
+        "stopReason": "stable"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "v:2:10",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方继续第 2 列阶梯（(2,10)），尚无威胁。我同步封住第 10 行：它的第 10 行西向光在 x=2 即被弹回。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 2,
+        "y": 11,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 1253.0424580001272,
+      "search": {
+        "nodes": 4811,
+        "depth": 4,
+        "mode": "attack",
+        "stopReason": "stable"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "v:2:11",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方阶梯再下一级 (2,11)，仍无威胁。同步封住第 11 行，保持逐级对应。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 2,
+        "y": 12,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 1214.8162079998292,
+      "search": {
+        "nodes": 4605,
+        "depth": 4,
+        "mode": "attack",
+        "stopReason": "stable"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "v:2:12",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方阶梯到 (2,12)，仍无威胁。同步封住第 12 行。由于 (2,13) 已经是我自己的斜镜，红方的第 2 列阶梯实际上到此就见底，再往下没有落脚点；它已被我在第 4~12 行逐级封死。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 3,
+        "y": 15,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 1058.325790999923,
+      "search": {
+        "nodes": 4498,
+        "depth": 4,
+        "mode": "attack",
+        "stopReason": "stable"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:3:14",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方把新据点放在 (3,15)，意图沿第 3 列从下方爬升。在 y=14 的横边镜把这条通道切断：红方从 (3,15) 北上第一格就被弹回。我的第 3 列光只在 y≤2.5，不受影响。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 5,
+        "y": 15,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 2143.5712500000373,
+      "search": {
+        "nodes": 4378,
+        "depth": 4,
+        "mode": "attack",
+        "stopReason": "stable"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:5:14",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方在第 3 列被封后，又到 (5,15) 沿第 5 列从下方爬升（它已有 (5,13) 斜镜可转向）。在 y=14 的横边镜提前封住这条通道，红方北上第一格即被弹回。对我的光无影响。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 4,
+        "y": 0,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 6961.841375000309,
+      "search": {
+        "nodes": 12345,
+        "depth": 5,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "v:4:0",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方新据点 (4,0) 开始在第 0 行做文章。在 x=4、y∈[0,1] 处切断第 0 行，提前断掉它沿顶行绕向西侧的可能。我的第 0 行光只在 x=2、3，不受影响。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 4,
+        "y": 15,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 1737.217999999877,
+      "search": {
+        "nodes": 4444,
+        "depth": 4,
+        "mode": "attack",
+        "stopReason": "stable"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:4:14",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方在第 15 行铺了 (3,15)/(4,15)/(5,15) 三面斜镜，意图借第 15 行光束北上第 4 列（(4,15) 的 E→N）。我在 y=14 提前封住第 4 列，红方北上第一格即被弹回。与已下的 h:3:14、h:5:14 构成 3/4/5 三列同层封锁。红方当前无一手威胁。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 6,
+        "y": 0,
+        "ori": "\\"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 3164.397291999994,
+      "search": {
+        "nodes": 10627,
+        "depth": 5,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "v:2:13",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方转向第 0 行/第 6 列，若它沿第 6 列下探并向西发射第 k 行光束，第 4~12 行已被我 v:2:4…v:2:12 封死，只剩第 13~15 行可通。先在 x=2 封住第 13 行：红方第 13 行西向光在 x=2 被弹回，同时也保护我自己的 (2,13) 镜不被红方当拐角。红方当前无一手威胁。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 6,
+        "y": 15,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 5376.0769169999985,
+      "search": {
+        "nodes": 12845,
+        "depth": 5,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "v:2:14",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方在第 6 列两端各放一面斜镜（(6,0) 与 (6,15)），形成一条可上下导向的竖直通道，最终仍要靠第 13~15 行往西突破。在 x=2 继续封住第 14 行，红方西向光在 x=2 即被弹回；与 v:2:13 连成一片。红方当前无一手威胁。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 0,
+        "y": 15,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 7180.108124999999,
+      "search": {
+        "nodes": 14827,
+        "depth": 5,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:6:1",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方刚把第 6 列做成一条可上下贯通的通道（(6,0) 与 (6,15)），并用它把第 0 行、第 15 行、第 0 列、第 7 行、第 1 列串成一条绕大圈的一手杀链。在 y=1 处横向切断第 6 列，红光束无论从上往下还是从下往上都会在 y=1 被弹回，整条环链的双向连接全部断开（已验证 h:6:1 能解除当前绝杀，v:1:7 也可）。这逼红方从零重搭。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 6,
+        "y": 6,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 10000.302832999994,
+      "search": {
+        "nodes": 18496,
+        "depth": 4,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:6:8",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方在 (6,6) 加镜，把我 h:6:1 的反弹变成“上行→弹回→下行到 (6,15)”的接力。再在 y=8 加一道横边镜，红光束沿第 6 列南行到 y=8 即被弹回，于是它在 y=1 与 y=8 两面镜之间来回振荡，再也到不了 (6,15)，整条绕圈杀链断裂（已验证 h:6:8 能解除当前绝杀，v:3:6 也可）。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 6,
+        "y": 8,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 10000.090499999991,
+      "search": {
+        "nodes": 13965,
+        "depth": 4,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:2:9",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方新链借我的 (2,13) 斜镜把第 13 行光折成第 2 列北行，再在它自己的 (2,8) 镜转东入第 8 行。在 y=9 横向切断第 2 列，红方沿第 2 列北上的光在 y=9 就被弹回，到不了 (2,8)，整条链断裂（已验证 h:2:9 能解除当前绝杀，v:3:8 也可）。我的第 2 列光只在 y≤3.5，不受影响。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 3,
+        "y": 7,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 3071.438291999977,
+      "search": {
+        "nodes": 5837,
+        "depth": 4,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "v:6:3",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方所有杀链的源头都是从 (13,3) 沿第 3 行一路西行、再在 (5,3) 转向南下。在 x=6、y∈[3,4] 处切断第 3 行，红光束在 x=6 就被弹回东侧，到不了 (5,3) 及西侧任何转折点，整条主干线被切断（已验证 v:6:3 能解除当前绝杀）。此镜远离基地，对我在小范围内的光毫无影响。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 6,
+        "y": 1,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 1081.4165410000132,
+      "search": {
+        "nodes": 1285,
+        "depth": 3,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "v:5:1",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方主干线被 v:6:3 切断后无法再沿第 3 行西进。它新下的 (6,1) 斜镜可以把第 6 列光折成第 1 行西行（朝我基地方向），目前只靠 v:4:1 拦着。在 x=5、y∈[1,2] 再补一道竖边镜，红方第 1 行西行光在 x=5 即被弹回，形成双层阻挡。我的光只在 x≤3.5，不受影响。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 13,
+        "y": 1,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 1425.8586249999935,
+      "search": {
+        "nodes": 1669,
+        "depth": 3,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:6:5",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方把 (6,6) 的光经第 6 列北上送到 (6,1)，再折东入第 1 行绕向 (13,1)。在 y=5 再切一刀第 6 列，(6,6) 北上的光在 y=5 就被弹回、南下的光在 y=8 被弹回，中段彻底成为孤立振荡区间，红方再也用不了这条纵向通道（已验证 h:6:5 能解除当前绝杀，v:7:1 也可）。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 6,
+        "y": 2,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 1488.3922090000124,
+      "search": {
+        "nodes": 1532,
+        "depth": 3,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:12:3",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方利用它自己的 (12,3) 斜镜把第 3 行的光折向第 12 列北上，撞上我的 (12,2) 斜镜后被折入第 2 行，再一路向东绕到 (6,2)。在 y=3 处横向切断第 12 列，红方北上的光在 y=3 就被弹回，根本到不了 (12,2)，整条链断裂（已验证 h:12:3 有效；v:5:2 无效）。这同时把我 (12,2) 这把“反被利用的刀”彻底隔离。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 6,
+        "y": 3,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 892.8656659999979,
+      "search": {
+        "nodes": 937,
+        "depth": 3,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:6:3",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方从 (6,3) 进入第 6 列，避开我已有的 y=1、y=5、y=8 三道封锁，从中间段钻到 (6,1) 再折东。在 y=3 紧贴它上方再切一刀，(6,3) 北上的光立刻被弹回，根本上不去 (6,1)，整条链断裂（已验证 h:6:3 与 h:6:2 都有效）。现在第 6 列被 y=1、y=2/3、y=5、y=8 多道切断。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 15,
+        "y": 3,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 10000.102333999996,
+      "search": {
+        "nodes": 12017,
+        "depth": 4,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "v:14:1",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方新绕行：第 3 行东行到 (15,3)→第 15 列北上→借我的 (15,1) 斜镜转西→第 1 行西行到它自己的 (13,1)→第 13 列南下。在 x=14、y∈[1,2] 处切断第 1 行后，红方西行的光在 x=14 就被弹回，既到不了 (13,1)，也用不上我 (15,1) 的输出，整条新开的路彻底断裂（已验证 v:14:1 与 v:14:3 都有效）。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 4,
+        "y": 4,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 10000.122791000002,
+      "search": {
+        "nodes": 13431,
+        "depth": 4,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "v:5:0",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方新链：第 12 列南下→第 4 行西行→被我的 v:3:4 弹回→(4,4) 斜镜北上第 4 列→(4,0) 转东→第 0 行到 (5,0)，再沿第 5 列南下到 (5,13) 进入它惯用的第 13 行。在 x=5、y∈[0,1] 处切断第 0 行，红方东行的光在 x=5 就被弹回，进不了第 5 列主干，整条链断裂（已验证 v:5:0 与 h:4:1 都有效）。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 4,
+        "y": 2,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 827.0014579999843,
+      "search": {
+        "nodes": 1021,
+        "depth": 3,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:6:2",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方改从 (4,2) 斜镜沿第 2 行东行进入 (6,2)，然后从 (6,2) 北上到 (6,1)（这一段刚好在我 h:6:3 之上）。在 y=2 再切一刀，(6,2) 北上的光立刻被弹回，上不去 (6,1)，整条链断裂（已验证 h:6:2 有效）。现在第 6 列从 y=1 到 y=3 已被连续三层切断。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 4,
+        "y": 3,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 839.8890000000247,
+      "search": {
+        "nodes": 1085,
+        "depth": 3,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "v:5:3",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方利用我的 v:6:3 把第 3 行东行光弹回，正好落到它自己的 (5,3) 斜镜上，再南下第 5 列进入它惯用的第 13 行主干。在 x=5、y∈[3,4] 处切一刀，红方东行的光在 x=5 就被弹回，落不到 (5,3) 上，整条链断裂（已验证 v:5:3 有效）。现在 (5,3) 这个枢纽从东西两侧都被我切断。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 5,
+        "y": 2,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 10000.115374999994,
+      "search": {
+        "nodes": 12551,
+        "depth": 4,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:5:3",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方绕过被我封死的 (5,3)，改在 (5,2) 直接进入第 5 列南下。在 y=3 处横向切断第 5 列，(5,2) 南下的光在 y=3 就被弹回，到不了 (5,13)，第 5 列这条主干彻底断开（已验证 h:5:3 有效）。现在 (5,2)、(5,3) 两个入口都失效。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 3,
+        "y": 4,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 10000.128458000021,
+      "search": {
+        "nodes": 14281,
+        "depth": 4,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "v:4:4",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方在 (3,4) 放斜镜，抢在我的 v:3:4 之前把第 4 行西行光折成第 3 列南下（→(3,7)→第 7 行→第 2 列→第 8 行→…）。在 x=4、y∈[4,5] 处切断第 4 行，红方西行的光在 x=4 就被弹回，根本碰不到 (3,4)，整条链断裂（已验证 v:4:4 与 h:3:5 都有效）。第 4 行从第 4 列再往西对红方彻底封闭。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 5,
+        "y": 4,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 10000.142625000037,
+      "search": {
+        "nodes": 15459,
+        "depth": 4,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "v:6:4",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方绕过 v:4:4，改在 (5,4) 直接进入第 5 列南下。在 x=6、y∈[4,5] 处切断第 4 行，红方沿第 4 行西行的光在 x=6 就被弹回，(5,4)、(4,4)、(3,4) 三个斜镜全部失去来源，连带第 5 列南下这条线也断掉（已验证 v:6:4 与 h:5:5 都有效）。第 4 行现在东有 v:6:4、西有 v:4:4，中段完全孤立。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 15,
+        "y": 2,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 8325.224041000009,
+      "search": {
+        "nodes": 14343,
+        "depth": 5,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:12:4",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方目前无一手威胁，我利用这个间隙做结构性切割：它的 (12,3) 斜镜把第 3 行光折入第 12 列南下，再经 (12,4)(12,5) 转出。（h:12:3 已封住南段上游）在 y=4 再切一刀，(12,3) 南下的光当场被弹回，(12,4)、(12,5) 两面斜镜同时失去来源。第 12 列对红方彻底封闭，也对我在 (12,13)/(12,14)/(12,15) 的炮台链形成保护。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 13,
+        "y": 2,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 7202.052583000041,
+      "search": {
+        "nodes": 16001,
+        "depth": 5,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "v:6:0",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方又绕回第 0 行：从东侧沿第 0 行西行到 (5,0)，再从 (5,0) 南下第 5 列、经 (5,2)/(4,2) 等斜镜回到老路线。在 x=6、y∈[0,1] 处切断第 0 行，红方西行的光在 x=6 就被弹回，永远到不了 (5,0)，第 0 行轨道被分成两段（已验证 v:6:0 与 h:5:5 都有效）。这是对红方绕行体系最大的一处切断。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 5,
+        "y": 1,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 7762.004541000002,
+      "search": {
+        "nodes": 16340,
+        "depth": 5,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "v:6:1",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方又开新路：借我的 v:14:1 弹回后沿第 1 行西行，落到它新下的 (5,1) 斜镜上再南下第 5 列。在 x=6、y∈[1,2] 处切断第 1 行，红方西行的光在 x=6 就被弹回，碰不到 (5,1)（已验证 v:6:1 有效）。至此 x=6 这一列在 y=0、1、3、4 都有我的竖边镜，加上 h:6:2 与第 6 列上的横切，形成一道把红方东、西两翼隔开的完整屏障。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 15,
+        "y": 7,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 7062.213915999979,
+      "search": {
+        "nodes": 15988,
+        "depth": 5,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:15:5",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方把新通道开到最东侧：第 3 行东行到 (15,3)，再沿第 15 列南下到它新下的 (15,7)，然后第 7 行西行绕回老路线。在 y=5 横向切断第 15 列，南下的光在 y=5 就被弹回，(15,7) 失去来源，整条新路断裂（已验证 h:15:5 与 v:14:7 都有效）。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 13,
+        "y": 7,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 5641.8610000000335,
+      "search": {
+        "nodes": 14475,
+        "depth": 5,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:13:8",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方直接从基地沿第 13 列北上，在它新下的 (13,7) 处折入第 7 行（h:13:3 在更北侧，拦不住这一段）。在 y=8 横向切断第 13 列，红方北上的光在 y=8 就被弹回，根本到不了 (13,7)，整条链断裂（已验证 h:13:8 有效；v:14:7 无效）。现在红方从基地沿第 13 列的北上被卡在 y=8 以下。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 0,
+        "y": 2,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 6480.895917000016,
+      "search": {
+        "nodes": 15878,
+        "depth": 5,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "v:1:7",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "第 7 行是红方目前最危险的高速公路：只要光能从 (0,7) 东行到它自己的 (1,7) 斜镜，就能沿第 1 列北上到 (1,3)，再经第 3 行、第 0 列、第 1 行绕回我基地。在 x=1、y∈[7,8] 处切断这一段，(0,7) 东行的光在 x=1 就被弹回，碰不到 (1,7)，红方最致命的那条入口被永久关闭。红方当前无一手威胁。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 13,
+        "y": 9,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 5034.290625000023,
+      "search": {
+        "nodes": 23594,
+        "depth": 6,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:13:12",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方的所有进攻链都发源于它基地沿第 13 列的北上光束（后续无论转向第 3、7、9 行还是第 5、12、15 列）。在 y=12——紧贴它基地北侧——横向切断第 13 列，红方北上的光在刚出家门口就被弹回，整条主干彻底无法建立。这比之前在下游（y=3、y=8）的切断更根本，也是它能绕过各种封锁的根源。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 15,
+        "y": 13,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 5011.027084000059,
+      "search": {
+        "nodes": 23922,
+        "depth": 6,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "v:15:13",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方在北向出射被 h:13:12 切断后，改用东侧出射：沿第 13 行向东到 (15,13)，再沿第 15 列北上。在 x=15、y∈[13,14] 处切断第 13 行，红方东行的光在 x=15 就被弹回，碰不到 (15,13)；配合已有的 v:12:13（西侧）与 h:13:12（北侧），红方基地只剩南向一个出口，而来路也早被封住。红方当前无一手威胁。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 15,
+        "y": 14,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 4710.715500000049,
+      "search": {
+        "nodes": 23984,
+        "depth": 6,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "v:12:14",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方基地的北、东、西三个出射口都已被我封住，只剩南向：它的光经 (13,14) 折入第 14 行向西。在 x=12、y∈[14,15] 处再切一刀第 14 行，红方的西行光在 x=12 就被弹回，既到不了我 (12,14) 的炮台供弹镜，也无法从第 14 行绕到西侧。至此红方四个出射方向全部封死。红方当前无一手威胁。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 0,
+        "y": 8,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 3296.7985839999747,
+      "search": {
+        "nodes": 10064,
+        "depth": 5,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:0:9",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方新开的西侧路线是从 (0,15) 沿第 0 列北上到 (0,8)，再折入第 8 行东行。在 y=9 横向切断第 0 列，红方北上的光在 y=9 就被弹回，到不了 (0,8)，这条新路断裂。至此第 0 列在 y=4、5、9 三处被切，红方西侧镜群与基地能提供的供给几乎被完全隔离。红方当前无一手威胁。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 0,
+        "y": 9,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 443.1968330000527,
+      "search": {
+        "nodes": 2897,
+        "depth": 4,
+        "mode": "attack",
+        "stopReason": "stable"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:0:8",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "接续 h:0:9，再在 y=8 切一刀第 0 列，把 (0,8)/(0,9) 这两个新据点与它们北侧可能的供源隔开。第 0 列现在在 y=4、5、8、9 四处被切断，红方沿最西侧纵向绕行的能力基本归零。红方当前无一手威胁。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 1,
+        "y": 9,
+        "ori": "\\"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 6862.168541999999,
+      "search": {
+        "nodes": 13981,
+        "depth": 5,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "v:1:9",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方把第 0 列北上的光在 (0,9) 折入第 9 行，再经它新下的 (1,9) 斜镜转入第 1 列，一路北上到 (1,3) 直扑我的要害。第 1 列在 y=3~9 这段受禁围限制无法直接切断，所以在 x=1、y∈[9,10] 处切断第 9 行：(0,9) 东行的光在 x=1 就被弹回，碰不到 (1,9)，这条新命脉断裂（已验证 v:1:9 有效）。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 0,
+        "y": 10,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 432.68700000003446,
+      "search": {
+        "nodes": 2739,
+        "depth": 4,
+        "mode": "attack",
+        "stopReason": "stable"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:0:11",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方又在 (0,10) 开了新据点，准备从第 10 行东行。在 y=11 再切一刀第 0 列，(0,10) 就从下方失去供给；上方 y=9 也已被 h:0:9 封住，于是 (0,10) 与 (0,9) 之间的整段彻底孤立。第 0 列现在在 y=4、5、8、9、11 五处被切，红方最西侧纵向通道彻底废掉。红方当前无一手威胁。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 0,
+        "y": 11,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 449.7179999999935,
+      "search": {
+        "nodes": 2510,
+        "depth": 4,
+        "mode": "attack",
+        "stopReason": "stable"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "v:1:11",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方在 (0,11) 开新据点，准备沿第 11 行东行绕出西侧。在 x=1、y∈[11,12] 处切断第 11 行，(0,11) 东行的光立刻被弹回，无法进入主战场。配合 h:0:11 与 h:0:9，第 0 列 y=8~11 这段完全封死，红方每开一个新据点都被我同步切断。红方当前无一手威胁。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 0,
+        "y": 12,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 400.13449999992736,
+      "search": {
+        "nodes": 2308,
+        "depth": 4,
+        "mode": "attack",
+        "stopReason": "stable"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:5:5",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方 (0,12) 的东向出口已被我已有的 v:2:12 提前封住（v:1:12 受禁围规则不能放）。改为继续加固第 5 列：在 y=5 再切一刀，配合 h:5:3，红方第 5 列主干从 y=3 到 y=5 完全断开，(5,4) 斜镜也失去纵向出路。红方当前无一手威胁。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 1,
+        "y": 12,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 4584.143917000038,
+      "search": {
+        "nodes": 13254,
+        "depth": 5,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:6:9",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方整个西翼（(0,8)~(0,12)、(1,12)、(0,15) 等）的唯一源头是 (6,8) 沿第 6 列南下到 (6,15)，再转第 15 行向西。在 y=9 切断第 6 列，(6,8) 南下的光当场被弹回，整条大动脉被斩断，红方所有西侧据点同时失去供给。我无法在 (1,12) 直接切断（受禁围规则限制），所以改从更上游下刀。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 6,
+        "y": 9,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 4832.333958000061,
+      "search": {
+        "nodes": 12921,
+        "depth": 5,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:3:8",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方新链：第 7 行西行 →(3,7) 折入第 3 列南下 →(3,13) 转第 13 行 →借用我的 (2,13) 斜镜转第 2 列北上。在 y=8 切断第 3 列，(3,7) 南下的光当场被弹回，到不了 (3,13)，整条链断裂（已验证 h:3:8 有效）。这也同时保住了我的 (2,13) 斜镜不被它借用。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 5,
+        "y": 7,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 5178.8432500000345,
+      "search": {
+        "nodes": 13812,
+        "depth": 5,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:5:9",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方绕过被我切断的 (3,7)，改在新据点 (5,7) 直接折入第 5 列南下到 (5,13)，再沿第 13 行西行。在 y=9 切断第 5 列，(5,7) 南下的光当场被弹回，到不了 (5,13)，整条链断裂（已验证 h:5:9 有效）。第 5 列现在在 y=3、5、9 三处被切，红方这条主干彻底废掉。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 3,
+        "y": 8,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 4754.937874999945,
+      "search": {
+        "nodes": 13917,
+        "depth": 5,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:3:9",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方在被切断的 (3,7) 下方新开 (3,8)，从那里沿第 3 列南下到 (3,13)。在 y=9 再切一刀，(3,8) 南下的光当场被弹回，到不了 (3,13)，整条链断裂（已验证 h:3:9 有效）。第 3 列现在在 y=1、3、8、9 四处被切，红方无法再用它把光送到南方。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 13,
+        "y": 8,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 4476.315584000084,
+      "search": {
+        "nodes": 13540,
+        "depth": 5,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:6:10",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方绕过 h:6:9（它新据点 (6,9) 就在切口下方），从那里沿第 6 列一路南下到 (6,15)，再转第 15 行、第 0 列、第 1 列绕到我的要害。在 y=10 紧贴其下方再切一刀，(6,9) 南下的光当场被弹回。第 6 列现在 y=1、2、3、5、8、9、10 连续被切，红方这条最关键的纵向通道彻底作废。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 6,
+        "y": 10,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 4926.148958000005,
+      "search": {
+        "nodes": 13002,
+        "depth": 5,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:6:11",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方总是紧贴我的切口下方新开斜镜绕过（现在轮到 (6,10)）。在 y=11 继续切断第 6 列，(6,10) 南下的光当场被弹回，到不了 (6,15)，无法接上第 15 行→第 0 列→第 1 列那条致命迂回。第 6 列在 y=8~11 已成连续封锁墙。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 6,
+        "y": 11,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 4875.754416999989,
+      "search": {
+        "nodes": 13077,
+        "depth": 5,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:6:12",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方现在经第 2 列南下→第 11 行东行→(6,11) 再沿第 6 列南下到 (6,15)，接第 15 行→第 0 列→第 1 列迂回。在 y=12 继续切断第 6 列，(6,11) 南下的光当场被弹回，到不了 (6,15)（已验证 h:6:12 有效；h:0:12 无效）。第 6 列 y=8~12 已成连续五道封锁，只需再补 y=13 就能彻底封死这条通道。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 7,
+        "y": 0,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 4520.574042,
+      "search": {
+        "nodes": 12514,
+        "depth": 5,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:6:14",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方整个致命迂回的最后一道门是 (6,15)：只能由第 6 列从上方或第 15 行从东侧进入。在 y=14 再切一刀第 6 列，(0,15) 外那条通道彻底断开；加上 h:6:12，第 6 列 y=8~14 已经被多道连续封锁。红方当前无一手威胁。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 7,
+        "y": 15,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 5373.805082999999,
+      "search": {
+        "nodes": 11092,
+        "depth": 5,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:7:1",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方新开一条完全不同的通道：第 0 行到 (7,0)，再从第 7 列直落 (7,15)，接第 15 行西行→第 0 列→第 1 列迂回。第 7 列完全在我过往封锁范围外，所以直接在 y=1 处切断：(7,0) 南下的光立刻被弹回，整条新通道作废（已验证 h:7:1 与 h:7:2 都有效）。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 7,
+        "y": 1,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 7053.682124999992,
+      "search": {
+        "nodes": 14072,
+        "depth": 5,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:15:3",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方被困在第 13 列隧道（h:13:3 与 h:13:8 之间）后，靠第 3 行东行到 (15,3)、再北上 (15,2) 逃出，转第 2 行→(13,2)→(13,1)→第 1 行西行到 (7,1)。在 y=3 切断第 15 列，(15,3) 北上的光被弹回，隧道出口彻底堵死，红方再也拿不到第 2 行和第 1 行东段（已验证 h:15:3 与 v:8:1 都有效）。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 7,
+        "y": 3,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 4730.830583000003,
+      "search": {
+        "nodes": 11370,
+        "depth": 5,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "v:6:15",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方新链：第 3 行西行→(7,3) 折入第 7 列直落 (7,15)→第 15 行西行到 (0,15)→第 0 列北上→(0,12)→第 1 列北上。第 15 行是这条链最后一公里，在 x=6、y∈[15,16] 处一刀切断：红方西行的光在 x=6 就被弹回，永远到不了 (0,15)，整条链断裂（已验证 v:6:15 与 v:4:15 都有效）。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 6,
+        "y": 14,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 3157.6651659999916,
+      "search": {
+        "nodes": 8865,
+        "depth": 5,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "v:3:15",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方无一手威胁。我在 (6,15) 基础上再加一层：在 x=3、y∈[15,16] 处也切断第 15 行。于是红方 (0,15) 这个枢纽的四邻全部封死（北侧第 0 列被 h:0:11 封、东侧第 15 行被 v:6:15 与 v:3:15 封），红方最西侧那条→(0,12)→第 1 列的致命迂回彻底无法建立。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 2,
+        "y": 14,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 2441.075374999986,
+      "search": {
+        "nodes": 8110,
+        "depth": 5,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:0:10",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "不把 (2,15) 放斜镜：那个位置朝/ 会把红方沿第 2 列南下的光反射成第 15 行西行，反而把我的 (0,15) 钥匙送到它手里。改为把第 0 列补满：在 y=10 再切一刀，现在 y=8、9、10、11 连续四道封锁。(0,12) 这个关键枢纽仅靠第 0 列供能，而该列已被彻底隔离，红方→第 1 列的致命迂回无法建立。红方当前无一手威胁。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 2,
+        "y": 15,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 4539.841832999984,
+      "search": {
+        "nodes": 11424,
+        "depth": 5,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "v:5:14",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方绕过 v:6:15：被弹回后先在 (6,14) 转上，沿第 14 行西行到 (2,14)，再南下 (2,15)，然后沿第 15 行西行进 (0,15)。在 x=5、y∈[14,15] 处切断第 14 行，红方西行的光在 x=5 就被弹回，到不了 (2,14)，整条新链断裂（已验证 v:5:14 与 v:4:14 都有效）。第 14 行现在在 x=2、5、12 三处被切断。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 5,
+        "y": 14,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 2295.506832999992,
+      "search": {
+        "nodes": 7698,
+        "depth": 5,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "v:4:15",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "v:3:14 受禁围规则限制不能放；红方的 (2,14)/(2,15) 口袋本来就已经与 (3,14)/(4,14) 隔绝，无法沿第 15 行西进到 (2,15)。改用已验合法的 v:4:15 再封一道：红方 (3,15) 这面斜镜夹在 v:3:15 与 v:4:15 之间，第 15 行在 x=3、4 被同时隔断，西侧三个格子与主战场彻底断开。红方当前无一手威胁。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 4,
+        "y": 14,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 4548.530291999981,
+      "search": {
+        "nodes": 10431,
+        "depth": 5,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:7:4",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方整条底部迂回的根都是第 7 列：从 (7,3) 直落 (7,15)，再沿第 15 行→(6,15)→(6,14)→第 14 行，用 (5,14)/(4,14)/(2,14) 做阶梯一路西进。在 y=4 扼住第 7 列的喉口（紧贴它 (7,3) 入口下方），(7,3) 南下的光当场被弹回，下面整串 (7,15)、(6,14)、(5,14)、(4,14) 全部失去供给，红方所有底部绕行方案一次性作废（已验证 h:7:4 有效）。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 7,
+        "y": 7,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 7408.27454199997,
+      "search": {
+        "nodes": 13694,
+        "depth": 5,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "v:7:15",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方绕开 h:7:4，改从第 7 行进入 (7,7) 再沿第 7 列南下。但不管它从第 7 列哪一格下来，最终都要沿第 15 行往西经过 (6,15)、(5,15)、(4,15) 才能靠上我基地区域。在 x=7、y∈[15,16] 直接把第 15 行拦死在西端：红方西行的光在 x=7 就被弹回，永远进不了 (6,15)，下面那一整串阶梯（(6,14)、(5,14)、(4,15)、(4,14)、(2,14)）全线断供。这比在列上追堵更根本，因为它不再依赖红方从哪一格进入。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 9,
+        "y": 0,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 7549.226374999969,
+      "search": {
+        "nodes": 15235,
+        "depth": 5,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:9:1",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方底部迂回被 v:7:15 斩断后，改在最东侧第 0 行放 (9,0) 另开一条纵向通道。在 y=1 处切断第 9 列，(9,0) 南下的光当场被弹回，这个新据点直接报废。经此，红方所有能通向第 14/15 行再西折的纵向通道都已失去意义（第 15 行在 x=7 封死、第 14 行在 x=5 封死）。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 10,
+        "y": 0,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 9342.515000000014,
+      "search": {
+        "nodes": 15627,
+        "depth": 5,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "kind": "diag",
+        "ori": "/",
+        "x": 14,
+        "y": 15
+      },
+      "actor": "dsh",
+      "rationale": "第 14 列整列（从 (14,0) 到 (14,15)）至今没有任何镜子，是棋盘上唯一的完全空列。在此埋一个朝/ 的斜镜：一旦有蓝光沿第 14 列南下，就会在 (14,15) 被折成第 15 行西行，再撞上我的 (12,15)\\ 转北→(12,14)/→(12,13) 炮台→东行直接命中红方基地，这是一条完整且无阻的胜利通道。同时它也封住第 15 行东端，红方无法再从最东侧绕过 v:7:15。红方当前无一手威胁。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 7,
+        "y": 14,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 9662.048500000034,
+      "search": {
+        "nodes": 15308,
+        "depth": 5,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:7:8",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方从 (7,7) 沿第 7 列南下到新下的 (7,14)，再沿第 14 行西行，经 (5,14)/(5,15)/(4,15)/(4,14) 阶梯绕到 (2,14)→(2,15)→(0,15)。第 14 行在 x=6、x=3 处都受禁围规则限制不能切，(3,14) 斜镜也非法，所以改在高处：在 y=8 切断第 7 列，(7,7) 南下的光当场被弹回，下面整串阶梯一次性断供。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 7,
+        "y": 11,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 10000.248124999984,
+      "search": {
+        "nodes": 15968,
+        "depth": 4,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:2:10",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方当前链的关键一环是沿第 2 列南下到 (2,11)，再东行第 11 行进 (7,11)。在 y=10 切断第 2 列：(2,9) 南下的光当场被弹回，到不了 (2,11)，第 11 行与第 7 列那一整串都没了入口。第 2 列现在在 y=1、2、3、4、7、9、10 连续被切，是棋盘上封锁最密的一列。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 7,
+        "y": 8,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 10000.147875000024,
+      "search": {
+        "nodes": 13872,
+        "depth": 4,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "v:3:8",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方改成：第 7 行西行→(2,7) 南下→h:2:9 弹回→(2,8) 东行→(7,8) 再入第 7 列直落 (7,14)。在 x=3、y∈[8,9] 处切断第 8 行，(2,8) 东行的光在 x=3 就被弹回，连它自己的 (3,8) 斜镜都碰不到，到不了 (7,8)，整条新链断裂（已验证 v:3:8 与 v:4:8 都有效）。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 5,
+        "y": 8,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 10000.195707999985,
+      "search": {
+        "nodes": 14406,
+        "depth": 4,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "v:6:8",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方最新链：第 7 行西行→(5,7)→第 5 列南下→h:5:9 弹回→(5,8) 东行→(7,8) 再入第 7 列。在 x=6、y∈[8,9] 处切断第 8 行，(5,8) 东行的光在 x=6 就被弹回，碰不到 (7,8)，整条链断裂。第 8 行现在从 x=3 到 x=6 连续被切（v:3:8 与 v:6:8），红方无法再从中段接上第 7 列。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 14,
+        "y": 2,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 10000.165375000099,
+      "search": {
+        "nodes": 13588,
+        "depth": 4,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:15:8",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方所有第 7 行/第 7 列的绕行（(7,7)、(7,8)、(7,11)、(7,14) 整串）源头都是它的 (15,14) 沿第 15 列北上到 (15,7)，再沿第 7 行西行。在 y=8 切断第 15 列，(15,14) 北上的光当场被弹回，到不了 (15,7)，第 7 行这条动脉彻底断供，底部阶梯也一起报废。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 10,
+        "y": 9,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 10000.288333999997,
+      "search": {
+        "nodes": 16135,
+        "depth": 4,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:7:9",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方用 (7,8) 作为第 7 列的新入口，向下接 (7,14) 再走第 14 行阶梯。在 y=9 从 (7,8) 下方横切第 7 列，(7,8) 南下的光当场被弹回，(7,9)/(7,11)/(7,14) 整串全部断供。第 7 列现在在 y=1、4、8、9 被切，且 (7,8) 以下已无有效供源。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 3,
+        "y": 9,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 10000.248250000004,
+      "search": {
+        "nodes": 16356,
+        "depth": 4,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:3:10",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方在第 9 行西行到新据点 (3,9)，再沿第 3 列南下到 (3,13)。在 y=10 从 (3,9) 下方切断第 3 列，(3,9) 南下的光当场被弹回，到不了 (3,13)，第 13 行/第 2 列那一整串全部断供。第 3 列现在 y=1、8、9、10 被切。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 5,
+        "y": 9,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 10000.154708000002,
+      "search": {
+        "nodes": 15928,
+        "depth": 4,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:5:10",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方在第 9 行西行到新据点 (5,9)，再沿第 5 列南下到 (5,13)。在 y=10 从 (5,9) 下方切断第 5 列，(5,9) 南下的光当场被弹回，到不了 (5,13)，第 13 行→第 2 列→第 11 行→第 7 列那一整串全部断供。第 5 列现在 y=3、5、9、10 被切。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 14,
+        "y": 10,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 10000.167083000008,
+      "search": {
+        "nodes": 15527,
+        "depth": 4,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:2:11",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方新链：把光送到 (14,10)，沿第 10 行西行到 (2,10)，再南下 (2,11) 转入第 11 行。在 y=11 从 (2,10) 下方切断第 2 列，(2,10) 南下的光当场被弹回，到不了 (2,11)，第 11 行→第 7 列→第 14 行阶梯整串断供。第 2 列现在 y=1、2、3、4、7、9、10、11 被切。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 3,
+        "y": 10,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 9928.788624999986,
+      "search": {
+        "nodes": 15720,
+        "depth": 5,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "v:4:10",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方把第 10 行当横向高速：从 (14,10) 一路西行到新据点 (3,10)，再南下第 3 列到 (3,13)。在 x=4、y∈[10,11] 处切断第 10 行，红方西行的光在 x=4 就被弹回，(3,10) 这个据点彻底不可达，第 3 列南下链随之作废。第 10 行现在在 x=4 与 x=2 处都被切断。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 7,
+        "y": 10,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 9414.78241699998,
+      "search": {
+        "nodes": 16850,
+        "depth": 5,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "v:8:10",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方又把第 10 行用成横向高速：从 (14,10) 西行到新据点 (7,10)，再沿第 7 列直落 (7,14)。在 x=8、y∈[10,11] 处切断第 10 行，(7,10) 彻底失去供源，第 7 列南下链作废。第 10 行现在在 x=2、4、8 三处被切。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 13,
+        "y": 11,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 7118.584249999985,
+      "search": {
+        "nodes": 14726,
+        "depth": 5,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:7:12",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方新链把光经 (13,11) 送入第 11 行西行，再接上 (7,11) 沿第 7 列南下。在 y=12 切断第 7 列，(7,11) 南下的光当场被弹回，到不了 (7,14)，第 14 行阶梯全串断供。第 7 列现在 y=1、4、8、9、12 被切。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 7,
+        "y": 12,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 10000.351540999982,
+      "search": {
+        "nodes": 11905,
+        "depth": 4,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:2:12",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方新链：第 11 行西行到 (2,11)，南下 (2,12)，再在第 12 行东行到 (7,12) 入第 7 列。在 y=12 切断第 2 列，(2,11) 南下的光当场被弹回，到不了 (2,12)，第 12 行→第 7 列→第 14 行阶梯全串断供。第 2 列现在 y=1、2、3、4、7、9、10、11、12 被切，已几乎完全封死。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 5,
+        "y": 10,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 9805.850791999983,
+      "search": {
+        "nodes": 13522,
+        "depth": 5,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:5:11",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方新链利用我的 v:8:10 反射把光折回 (5,10)，再沿第 5 列南下到 (5,13) 走第 13 行阶梯。在 y=11 切断第 5 列，(5,10) 南下的光当场被弹回，到不了 (5,13)，第 13 行→第 2 列→第 12 行整串断供。第 5 列现在 y=3、5、9、10、11 被切。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 3,
+        "y": 11,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 7707.475999999995,
+      "search": {
+        "nodes": 14600,
+        "depth": 5,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "v:3:13",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方反复用同一个枢纽：把光送到第 13 行西行，借我的 (2,13) 斜镜转入第 2 列北上，再走第 12/11 行。在 x=3、y∈[13,14] 处切断第 13 行，任何从东边过来的第 13 行光在 x=3 就被弹回，根本碰不到我的 (2,13)，这个被反复利用的枢纽彻底隔离。本次它新下的 (3,11)→(3,13) 链也同时作废。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 3,
+        "y": 12,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 7210.081625000021,
+      "search": {
+        "nodes": 14588,
+        "depth": 5,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "v:4:12",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方用 (3,11)→(3,12) 把光送入第 12 行，再东行到 (7,12) 入第 7 列。在 x=4、y∈[12,13] 处切断第 12 行，红方东行的光在 x=4 就被弹回，到不了 (7,12)，第 7 列→第 14 行阶梯全串断供。第 12 行现在在 x=2、4 处被切。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 5,
+        "y": 12,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 7219.0408330000355,
+      "search": {
+        "nodes": 17720,
+        "depth": 5,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:7:13",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方又绕到 (7,12)，准备沿第 7 列南下到关键据点 (7,14)（所有底部阶梯的入口）。在 y=13 再切一刀第 7 列，(7,12) 南下的光被弹回，到不了 (7,14)，第 14 行阶梯全串断供。第 7 列现在 y=1、4、8、9、12、13 被切，已经彻底封锁。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 7,
+        "y": 13,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 5848.512749999994,
+      "search": {
+        "nodes": 11944,
+        "depth": 5,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:7:14",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方把斜镜下在 (7,13)，正好夹在我的 y=12 与 y=13 两道切口之间，但它仍能向南一步进入关键据点 (7,14)。在 y=14 补上最后一刀，(7,13) 南下的光也被弹回。第 7 列现在 y=1、4、8、9、12、13、14 连续被切，(7,14) 这个所有底部阶梯的入口彻底封闭。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 10,
+        "y": 14,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 4859.308166999952,
+      "search": {
+        "nodes": 11200,
+        "depth": 5,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:10:1",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方避开我层层封锁的第 7 列，改在最东侧用第 10 列：从 (10,0) 一路南下到新据点 (10,14)，直接落到第 14 行阶梯入口。第 14 行在 x=3、6、7 处都受禁围限制不能切，所以在 y=1 直接封住第 10 列，(10,0) 南下的光当场被弹回，这条全新的纵向通道从头就被堵死。与 h:9:1 一起，第 9、10 两列都在顶部被掐断。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 10,
+        "y": 3,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 7529.194666000025,
+      "search": {
+        "nodes": 15582,
+        "depth": 5,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:10:13",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方在中段 (10,3) 接入第 10 列，再一路南下到 (10,14) 落到第 14 行阶梯。与其在顶部追堵，不如在底部封：在 y=13 切断第 10 列，不管红方从第 10 列哪一行进入，(10,14) 都拿不到纵向供源，第 14 行阶梯入口再次被堵死。第 10 列现在 y=1 与 y=13 两处被切。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 10,
+        "y": 13,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 5514.761334000039,
+      "search": {
+        "nodes": 11116,
+        "depth": 5,
+        "mode": "attack",
+        "stopReason": "stable"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:10:14",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "与第 7 列完全同样的手法：红方把斜镜下在我切口下方一格 (10,13)，仍能向南进入 (10,14)。在 y=14 补上最后一刀，(10,13) 南下的光也被弹回。第 10 列现在 y=1、13、14 被切，(10,14) 这个第 14 行阶梯入口再也拿不到纵向供源。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 8,
+        "y": 0,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 4780.441957999952,
+      "search": {
+        "nodes": 11111,
+        "depth": 5,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "v:8:14",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方刚在 (8,0) 开新的纵向口，最可能的用法是沿第 8 列落到 (8,14)，再沿第 14 行西行接上 (5,14) 阶梯。第 14 行在我 (v:5:14) 以东完全开放，所以在 x=8、y∈[14,15] 切断第 14 行：红方从东侧西行的光在 x=8 就被弹回，碰不到 (7,14)/(6,14)/(5,14)，整条阶梯与东半场彻底隔离。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 8,
+        "y": 15,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 5660.270958999987,
+      "search": {
+        "nodes": 11261,
+        "depth": 5,
+        "mode": "attack",
+        "stopReason": "stable"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:8:14",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "v:8:15 受禁围规则限制。改为切断第 8 列纵向：在 y=14 处封住，(8,0) 沿第 8 列南下的光在 y=14 就被弹回，到不了 (8,15)，第 15 行与 (7,15)→(7,14) 整串断供。第 8 列的纵向通道从头到尾被掐断，与 v:8:14（第 14 行横向）配合，把东侧所有入口封死。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 11,
+        "y": 0,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 5725.534249999968,
+      "search": {
+        "nodes": 13435,
+        "depth": 5,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:9:14",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方在东侧持续开纵向口，企图落到第 14/15 行再西行接上阶梯。第 9 列目前完全开放，是它下一个可用入口。在 y=14 切断第 9 列，(9,x) 南下的光到不了 (9,14)/(9,15)，无法在第 14/15 行上西行。与 h:9:1（顶部）、h:10:14 配合，第 9、10 两列的两端都被封死。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 11,
+        "y": 15,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 6517.8650420000195,
+      "search": {
+        "nodes": 11760,
+        "depth": 5,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:11:13",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "h:11:14 受禁围规则限制。改为在 y=13 切断第 11 列：(11,0) 南下的光在 y=13 就被弹回，同样到不了 (11,15)，红方无法再从第 11 列接入第 15 行的西行通道。与第 8、9、10 列南端的封锁一起，红方在第 15 行东段已无可用供源。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 11,
+        "y": 13,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 6633.09604199999,
+      "search": {
+        "nodes": 10199,
+        "depth": 5,
+        "mode": "attack",
+        "stopReason": "stable"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "kind": "diag",
+        "ori": "/",
+        "x": 9,
+        "y": 15
+      },
+      "actor": "dsh",
+      "rationale": "红方把斜镜放在我 h:11:13 切口下方 (11,13)，仍能沿第 11 列落到 (11,15)，再沿第 15 行西行到 (7,15)→(7,14)。第 15 行在 x=8 处受禁围限制不能切，改用斜镜直接堵住通道：在 (9,15) 放 /，红方西行的光在 x=9.5 就被反射回去，永远到不了 (7,15)，整条底部迂回断裂（已验证能解除当前绝杀）。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 11,
+        "y": 14,
+        "ori": "\\"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 3736.544249999977,
+      "search": {
+        "nodes": 9174,
+        "depth": 5,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "v:12:12",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方东半场的枢纽是 (13,12)/(13,11)：从那里可以北上 (13,0) 接第 0 行传送带，也可以转入第 11 列。它们唯一的横向入口是第 12 行。在 x=12、y∈[12,13] 处切断第 12 行，红方东行的光在 x=12 就被弹回，(13,12) 与 (13,11) 全部断供，第 0 行东段与第 11 列两整串同时作废。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 8,
+        "y": 14,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 6126.812417000008,
+      "search": {
+        "nodes": 10575,
+        "depth": 5,
+        "mode": "attack",
+        "stopReason": "stable"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "v:9:14",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方新链：沿第 14 行西行到新据点 (8,14)，再南下 (8,15)，西行经过 (7,15) 北上 (7,14) 接阶梯。第 15 行在 x=8 受禁围限制不能切，改在 x=9、y∈[14,15] 切断第 14 行：红方西行的光在 x=9 就被弹回，到不了 (8,14)，整条新链断裂。第 14 行现在在 x=2、5、8、9、12 被切。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 9,
+        "y": 14,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 5665.77350000001,
+      "search": {
+        "nodes": 10150,
+        "depth": 5,
+        "mode": "attack",
+        "stopReason": "stable"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "v:11:14",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "v:10:14 受禁围限制。改在 x=11、y∈[14,15] 切断第 14 行：红方从东侧沿第 14 行西行的光在 x=11 就被弹回，到不了 (9,14)，后续 (9,15)→西行→(7,15)→(7,14) 整串断供。第 14 行现在在 x=2、5、8、9、11、12 被切。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 10,
+        "y": 15,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 6200.213417000021,
+      "search": {
+        "nodes": 10150,
+        "depth": 5,
+        "mode": "attack",
+        "stopReason": "stable"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:11:12",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "v:9:15 受禁围限制。改从上游断：红方整条新链都发源于第 11 列向下的两格 (11,13)→(11,14)→(11,15)。在 y=12 再切断第 11 列（配合已有的 h:11:13），(11,12) 以下整段彻底失去供源，(11,13)/(11,14)/(11,15) 全部作废，后续 (10,15)→(10,14)→(9,14)→(9,15) 那条迂回也一并断供。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 3,
+        "y": 1,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "无需防守，优先直接接通攻击，迫使对方应对；继续比较其防守与反击。",
+      "thinkingMs": 903.8057920000283,
+      "search": {
+        "nodes": 21298,
+        "depth": 3,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "kind": "diag",
+        "ori": "\\",
+        "x": 0,
+        "y": 14
+      },
+      "actor": "dsh",
+      "rationale": "红方已命中我的基地，必须本回合解除。用 find_moves(blue, defend) 穷举后，合法解有 118 个；选用第一个 (0,14)\\：红方杀链的最后一段正是沿第 0 列从 (0,15) 北上到 (0,12)，而 (0,14) 正在这条路径上。在此放 \\，红方北上的光被反射离轴，第 0 列通往 (0,12)→第 1 列→(1,3)→(0,1)→第 1 行→我的 v:4:1→(3,1)→(3,2) 的整条致命尾段被拆断。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 1,
+        "y": 15,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "无需防守，优先直接接通攻击，迫使对方应对；继续比较其防守与反击。",
+      "thinkingMs": 1961.7224999999999,
+      "search": {
+        "nodes": 21680,
+        "depth": 3,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "kind": "diag",
+        "ori": "\\",
+        "x": 10,
+        "y": 1
+      },
+      "actor": "dsh",
+      "rationale": "红方用 (1,15) 绕开了我的 (0,14)，仍未解除。继续用 find_moves(blue,defend) 穷举（现有 114 个合法解），取其首个 (10,1)\\：红方杀链中段有一条从 x=14 沿第 1 行西行到 x=7.5 的段落，会经过 (10,1)；在此放入斜镜就把这段横向传送打断，从而拆断整条命中路径。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 11,
+        "y": 11,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "无需防守，优先直接接通攻击，迫使对方应对；继续比较其防守与反击。",
+      "thinkingMs": 2390.704292000002,
+      "search": {
+        "nodes": 21904,
+        "depth": 3,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "kind": "diag",
+        "ori": "\\",
+        "x": 10,
+        "y": 11
+      },
+      "actor": "dsh",
+      "rationale": "红方把新链改走 (11,0)→第 11 列南下→(11,11)→第 11 行西行→(3,11)→第 3 列→第 13 行。继续用 find_moves(blue,defend) 穷举（现有 93 个合法解），取其首个 (10,11)\\：红方第 11 行西行段必经 (10,11)，在此放斜镜就把这段横向传送打断，当前命中路径被拆除。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 7,
+        "y": 9,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "无需防守，优先直接接通攻击，迫使对方应对；继续比较其防守与反击。",
+      "thinkingMs": 1285.8918330000015,
+      "search": {
+        "nodes": 21726,
+        "depth": 3,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "kind": "edge",
+        "id": "h:7:10"
+      },
+      "actor": "dsh",
+      "rationale": "红方已命中我基地，必须本回合解除。红方最新补丁是在 (7,9) 放 / 把沿第 9 行西行的光束折向第 7 列南下；我在 (7.5,10) 放横边镜，正好卡在它最新拐弯点之后，把下行的光原路反回。反回的光沿第 7 列北上撞回 (7,9)/、再东行回到 (13,9)/、北上后被我的 h:13:8 反回，整束被锁进旧回环，红方这一步补丁作废。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 8,
+        "y": 12,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "无需防守，优先直接接通攻击，迫使对方应对；继续比较其防守与反击。",
+      "thinkingMs": 1204.3042500000447,
+      "search": {
+        "nodes": 21650,
+        "depth": 3,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:8:11",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方用 (8,12)/ 把第 8 列的旧传送支路接到第 12 行，重新命中。我在 (8.5,11) 放横边镜，正卡在它新拐点上方，把第 8 列下行的光原路反回并让它沿第 0 行回环，红方最新一手 (8,12) 直接作废；横边镜是永久封列，红方只能再去换一条新通道。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 9,
+        "y": 7,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "推进已验证的连接方案；还需 1 面镜子接通，对方仍可干预。",
+      "thinkingMs": 2981.394208999991,
+      "search": {
+        "nodes": 1530,
+        "depth": 3,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:9:8",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方本回合没能接通，我第一次有自由手。红方最新一手 (9,7)/ 正是要把光导入第 9 列南下（现已在 (9,7) 下方形成整列下行支路），红方自称\"还需 1 面镜子\"。我在 (9.5,8) 放横边镜，紧贴其新拐点下方把该列反射回原路，这一列的南下支路被永久封死，(9,7) 基本作废，红方必须再找新通道。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 4,
+        "y": 9,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "推进已验证的连接方案；还需 1 面镜子接通，对方仍可干预。",
+      "thinkingMs": 978.4285000000382,
+      "search": {
+        "nodes": 1458,
+        "depth": 3,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:4:10",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方仍未接通，我又有自由手。红方最新一手 (4,9)/ 是把沿第 9 行西行的光折入第 4 列南下，我已看到它的光沿第 4 列一直下到 (4,13)。我在 (4.5,10) 放横边镜，紧贴它新拐点下方把南下的光原路反回，(4,9) 这手直接作废，第 4 列向下的通路被永久切断，红方还得再换一条新路线。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 9,
+        "y": 9,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "推进已验证的连接方案；还需 1 面镜子接通，对方仍可干预。",
+      "thinkingMs": 10000.20779200003,
+      "search": {
+        "nodes": 10683,
+        "depth": 4,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "kind": "diag",
+        "ori": "/",
+        "x": 4,
+        "y": 1
+      },
+      "actor": "dsh",
+      "rationale": "红方连续两手都没接通（第 9 列南下被我 h:9:8 封死，第 4 列被我 h:4:10 封死），我又有自由手。我的蓝光目前只在基地附近 24 格里循环，靠红方镜像做迷宫；(4,1) 是蓝光路径上仅有的两个空位之一。在此放 /，蓝光就会从 (4,1) 折向南方，经 (4,2)/(3,2)/(3,3)/(3,4)/(2,4)/(2,5)/(1,5)/(1,6) 一线打开新支路，有机会沿第 4、5 行向棋盘右侧扩展，为将来直击红方基地 (13,13) 铺路。已用 analyze_variation 确认红方现有光束不会因此命中我基地。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 9,
+        "y": 13,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "无需防守，优先直接接通攻击，迫使对方应对；继续比较其防守与反击。",
+      "thinkingMs": 3077.642833000049,
+      "search": {
+        "nodes": 22593,
+        "depth": 3,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:9:10",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方刚用 (9,9)/ 把沿第 9 行西行的光折入第 9 列南下，再用 (9,13)/ 把它转东、经我的 v:12:13 反回后下行第 11 列到底部蛇形通道，重新命中。我在 (9.5,10) 放横边镜，位于这两个新拐点之间：南下的光在 (9,9) 下方立刻被原路反回，红方连续两手 (9,9)/(9,13) 同时作废，第 9 列向下的通路永久封死。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 9,
+        "y": 10,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "无需防守，优先直接接通攻击，迫使对方应对；继续比较其防守与反击。",
+      "thinkingMs": 2174.02029200003,
+      "search": {
+        "nodes": 22235,
+        "depth": 3,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:9:12",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "我的 h:9:10 把第 9 列下行的光反回后，红方立刻在 (9,10)/ 从第 10 行（经右墙反弹西行）重新接到第 9 列，再经 (9,13)/ 转东、被我的 v:12:13 反回后下行第 11 列到底部，形成新的命中链。我在 (9.5,12) 放横边镜，位于 (9,10) 与 (9,13) 之间的下行段：光在抵达 (9,13) 前就被原路反回，红方这两手同时失效，第 9 列向下的通路再次彻底封死。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 9,
+        "y": 11,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "无需防守，优先直接接通攻击，迫使对方应对；继续比较其防守与反击。",
+      "thinkingMs": 2085.3382080000592,
+      "search": {
+        "nodes": 22283,
+        "depth": 3,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "v:10:10",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方现在把杀链改到第 10 行：沿右墙反弹后西行，在 (9,10)/ 折下、再经 (9,11)/ 西行第 11 行，到 (3,11)/ 下第 3 列、被我的 h:3:14 反回后东行第 13 行，再被 v:12:13 反回下行第 11 列到底部。我在 (10,10.5) 放竖边镜，卡在 (9,10) 新拐点东侧：西行的光在到达 (9,10) 前就被原路反射回右墙，(9,10) 与 (9,11) 两手同时作废，第 10 行西行的通路也被永久封死。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 8,
+        "y": 10,
+        "ori": "\\"
+      },
+      "actor": "rust-wasm",
+      "rationale": "无需防守，优先直接接通攻击，迫使对方应对；继续比较其防守与反击。",
+      "thinkingMs": 1675.233874999918,
+      "search": {
+        "nodes": 21867,
+        "depth": 3,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:8:9",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方本轮改走：沿第 0 行西行到 (8,0)/ 后南下整列第 8 列，再用新放的 (8,10)\\ 把光转东到第 10 行，被我上一手的 v:10:10 反回后进入 (9,10)/(9,11)，再沿第 11 行西行到 (3,11)/ 下第 3 列、东行第 13 行、被 v:12:13 反回后下第 11 列到底部蛇形。新拐点就是 (8,10)；我在 (8.5,9) 放横边镜，第 8 列南下的光在到达 (8,10) 前就被原路反回，(8,10) 作废，第 8 列作为下行通道也被永久截断（这和之前两度让红方多花两手的手法一致）。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 8,
+        "y": 9,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "无需防守，优先直接接通攻击，迫使对方应对；继续比较其防守与反击。",
+      "thinkingMs": 2136.1790830000537,
+      "search": {
+        "nodes": 22012,
+        "depth": 3,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "v:10:9",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方绕过我的 h:8:9：从 (13,9) 沿第 9 行西行，在 (8,9)/ 下第 8 列、(8,10)\\ 转东，再经我的 v:10:10 反回进入 (9,10)/(9,11) 后沿第 11 行西行、下第 3 列…形成新的命中链。新的入口是第 9 行西行段；我在 (10,9.5) 放竖边镜，西行的光在到达 (9,9) 与 (8,9) 之前就被反回，(8,9) 作废，第 9 行西行通道永久断开。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 9,
+        "y": 2,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "无需防守，优先直接接通攻击，迫使对方应对；继续比较其防守与反击。",
+      "thinkingMs": 3252.1842079999624,
+      "search": {
+        "nodes": 23108,
+        "depth": 3,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "v:4:13",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方上一手 (9,2)/ 把第 9 列的光折向西、经第 2 行与整列第 4 列（被我的 h:4:10 反回）绕回第 9 行，再经第 8、10 行和我的 v:10:10 接到 (9,10)/(9,11)，沿第 11 行西行到 (3,11)/、下第 3 列（被 h:3:14 反回）、再到 (3,13)/ 转东，沿第 13 行东行到我的 v:12:13，反弹后入 (11,13) 下第 11 列到底部蛇形通道，由此通往杀链尾段。第 13 行东行段是通往底部蛇形的唯一入口；我在 (4,13.5) 放竖边镜，紧接 (3,13)/ 之后就把光束反回，加上 (2,13) 与 h:3:14，光会被困在 (3,13) 附近的小回环，整个底部蛇形入口被永久切断。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 5,
+        "y": 11,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "无需防守，优先直接接通攻击，迫使对方应对；继续比较其防守与反击。",
+      "thinkingMs": 3476.227958999807,
+      "search": {
+        "nodes": 23131,
+        "depth": 3,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "v:9:13",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方用 (5,11)/ 把沿第 11 行西行的光折下第 5 列，被我 h:5:14 反回后在 (5,13)/ 转东，沿第 13 行东行到我的 v:12:13 反弹，再入 (11,13) 下第 11 列到底部蛇形通道。第 13 行东行段是通往底部蛇形的唯一咽喉；我在 (9,13.5) 放竖边镜，把该段在 x=9 处截断——不只本轮命中被拆除，红方以后从 x≤9 任何位置进入第 13 行东行的尝试都同样被截住。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 9,
+        "y": 12,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "无需防守，优先直接接通攻击，迫使对方应对；继续比较其防守与反击。",
+      "thinkingMs": 3161.4933329999913,
+      "search": {
+        "nodes": 23030,
+        "depth": 3,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "v:9:12",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方又绕开：被 h:5:14 反回的光北上第 5 列，(5,12)/ 转东沿第 12 行，红方新放的 (9,12)/ 把它折上，再在我的 h:9:12 / h:9:14 之间直跑，最后从 (9,13)/ 东行第 13 行进 (11,13) 下第 11 列到底部蛇形。我在 (9,12.5) 放竖边镜，就卡在 (9,12) 入口东侧：沿第 12 行东行的光到不了新拐点，(9,12) 作废，第 12 行东行通道也永久断开。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 10,
+        "y": 12,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "无需防守，优先直接接通攻击，迫使对方应对；继续比较其防守与反击。",
+      "thinkingMs": 2868.050583000062,
+      "search": {
+        "nodes": 22880,
+        "depth": 3,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:9:5",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方新放 (10,12)/：被 h:9:12 反回的光北上到 (9,11)/、东行到我的 (10,11)\\、被折下第 10 列，再由 (10,12)/ 转西、入 (9,12)/ 下行，在我的 h:9:14 反弹后从 (9,13)/ 东行第 13 行进 (11,13) 下第 11 列到底部蛇形。整条链的上游依赖第 9 列 y=1..8 的上下往返（由我的 h:9:1 与 h:9:8 造成）；我在 (9.5,5) 放横边镜，把这段垂直往返在三格处截断，红方整条上游链路断开，(10,12) 这手也失效。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 3,
+        "y": 3,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "无需防守，优先直接接通攻击，迫使对方应对；继续比较其防守与反击。",
+      "thinkingMs": 3563.357791000046,
+      "search": {
+        "nodes": 23214,
+        "depth": 3,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:4:6",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方新放 (3,3)/：第 7 行西行到 (3,7)/、被 h:3:8 反回后北上到新镜 (3,3)/、东行到我的 v:5:3、被反弹后由 (4,3)/ 南下整列第 4 列，再经我的 h:4:10、行 9.5、我的 h:8:9/v:10:10、行 10.5、列 9、行 11.5、列 10、行 12.5，最后从 (9,13)/ 东行第 13 行进 (11,13) 下第 11 列。我在 (4.5,6) 放横边镜，把第 4 列南下段在 y=6 处截断，新链整段断开，(3,3) 这手也作废。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 9,
+        "y": 8,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "无需防守，优先直接接通攻击，迫使对方应对；继续比较其防守与反击。",
+      "thinkingMs": 3887.7322499998845,
+      "search": {
+        "nodes": 23306,
+        "depth": 3,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "v:10:8",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方新放 (9,8)/：光从第 13 列北上被我的 h:13:8 反回后，由 (13,8)/ 西行第 8 行，在 (9,8)/ 折下第 9 列，再经 (9,9)/(8,9)/、第 8 列、(10,10.5)、列 9、行 11.5、列 10、行 12.5 一直到 (9,13)/ 东行第 13 行进 (11,13) 下底部蛇形。我在 (10,8.5) 放竖边镜，卡在 (9,8) 入口东侧：沿第 8 行西行的光进不了新拐点，(9,8) 作废，同时第 8 行横向通道被永久隔断。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 4,
+        "y": 8,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "无需防守，优先直接接通攻击，迫使对方应对；继续比较其防守与反击。",
+      "thinkingMs": 4104.09283400001,
+      "search": {
+        "nodes": 23740,
+        "depth": 3,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "v:5:8",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方新放 (4,8)/：光沿第 7 行西行到 (5,7)/ 下第 5 列，再 (5,8)/ 转西入第 8 行，经新镜 (4,8)/ 南下第 4 列，由我的 h:4:10 反回后在 (4,9)/ 转东第 9 行，接回老链一路到 (9,13)/ 东行第 13 行进 (11,13) 下底部蛇形。我在 (5,8.5) 放竖边镜，卡在 (4,8) 入口东侧：西行的光进不了新拐点，(4,8) 作废，第 8 行横向通道在 x=5 处被永久截断。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 4,
+        "y": 7,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "无需防守，优先直接接通攻击，迫使对方应对；继续比较其防守与反击。",
+      "thinkingMs": 3263.174832999939,
+      "search": {
+        "nodes": 23325,
+        "depth": 3,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "v:5:7",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方新放 (4,7)/：光沿第 7 行一直西行到新镜，折下第 4 列，再由我的 h:4:10 反回、在 (4,9)/ 转东接回老链。我在 (5,7.5) 放竖边镜，就卡在 (4,7) 入口的东侧：沿第 7 行西行的光到不了新拐点，(4,7) 作废，第 7 行横向通道在 x=5 处被永久截断；反回的光会与 (7,7)/ 与我的 h:7:8 组成小回环。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 7,
+        "y": 2,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "无需防守，优先直接接通攻击，迫使对方应对；继续比较其防守与反击。",
+      "thinkingMs": 3452.393374999985,
+      "search": {
+        "nodes": 23281,
+        "depth": 3,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "v:5:2",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方新放 (7,2)/：光在第 1 行东支路被 (7,1)/ 折下第 7 列，新镜 (7,2)/ 把它转西入第 2 行，经 (4,2)/(4,3) 下第 4 列到 (3,3)，再被 h:3:8 反回、经 (3,7)/ 东行、被我的 v:5:7 反入 (4,7)/ 南下第 4 列，最后由 h:4:10 反回、在 (4,9)/ 转东接回老链。我在 (5,2.5) 放竖边镜，卡在第 2 行西行段：光到不了 (4,2)，新镜 (7,2) 作废，第 2 行 x=5 以西的横向通道被永久封死。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 8,
+        "y": 8,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "无需防守，优先直接接通攻击，迫使对方应对；继续比较其防守与反击。",
+      "thinkingMs": 1433.3859590000939,
+      "search": {
+        "nodes": 22021,
+        "depth": 3,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:8:1",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方新放 (8,8)/：光沿第 0 行西行到 (8,0)/ 后南下整列第 8 列，被我的 h:8:9 反回后由新镜 (8,8)/ 转东第 8 行，再被我的 v:10:8 反回进入 (9,8)/(9,9)/(8,9) 接回列 9 与列 8 的老链。这次我直接在 (8.5,1) 封住第 8 列顶端入口：整列第 8 列再也无法从第 0 行南下，红方本轮新链与既有第 8 列通道一并报废。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 8,
+        "y": 7,
+        "ori": "\\"
+      },
+      "actor": "rust-wasm",
+      "rationale": "无需防守，优先直接接通攻击，迫使对方应对；继续比较其防守与反击。",
+      "thinkingMs": 2964.833083999809,
+      "search": {
+        "nodes": 22636,
+        "depth": 3,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:8:8",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方新放 (8,7)\\：光沿第 7 行东行入新镜，被折下第 8 列，在我的 h:8:9 反回后由 (8,8)/ 东行、被 v:10:8 反回，接回 (9,8)/(9,9)/(8,9) 老链。我在 (8.5,8) 放横边镜，紧贴新镜下方：下行的光立即被原路反回，新镜 (8,7) 完全失效，第 8 列 y=8 以下也无法再被下行光利用。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 8,
+        "y": 1,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 5176.539250000147,
+      "search": {
+        "nodes": 7019,
+        "depth": 4,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:8:2",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方本回合未接通。它上一手 (8,1)/ 是为了绕过我封顶的 h:8:1，想从第 1 行横光转下第 8 列；但第 8 列下面已有我的 h:8:8 等横边镜。我直接在其新镜下方 (8.5,2) 再封一刀：从 (8,1) 下行的光立即被反回，(8,1) 这手作废，第 8 列 y=2..8 的下行段也彻底不可用。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 8,
+        "y": 2,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "比较对手的应对后，选择兼顾连接与防守的一手。",
+      "thinkingMs": 4957.483208000194,
+      "search": {
+        "nodes": 6851,
+        "depth": 4,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:8:3",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方又没接通，仍想在第 8 列找下行口（这次用 (8,2)/ 承接第 2 行东行光）。我继续在其新镜正下方 (8.5,3) 封一刀：从 (8,2) 下行的光立即被原路反回，(8,2) 作废。这个“红方放斜镜、我在其正下方放横边镜”的阶梯对红方不利：它每轮消耗一枚稀缺的格子，我只消耗本就很充裕的边镜。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 5,
+        "y": 6,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "推进已验证的连接方案；还需 1 面镜子接通，对方仍可干预。",
+      "thinkingMs": 5008.357791000046,
+      "search": {
+        "nodes": 6628,
+        "depth": 4,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:5:7",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方放弃第 8 列、改在 (5,6)/ 找新的下行出口（它自称\"还需 1 面镜子\"）。我在 (5.5,7) 放横边镜，封住第 5 列在 (5,6) 下方的下行段：若它从这里折下会被原路反回；这一列也已有 h:5:9/h:5:10/h:5:11 等封堵，继续压缩红方的下行选择。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 10,
+        "y": 6,
+        "ori": "\\"
+      },
+      "actor": "rust-wasm",
+      "rationale": "推进已验证的连接方案；还需 1 面镜子接通，对方仍可干预。",
+      "thinkingMs": 5050.425957999891,
+      "search": {
+        "nodes": 7160,
+        "depth": 4,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "kind": "diag",
+        "ori": "/",
+        "x": 13,
+        "y": 4
+      },
+      "actor": "dsh",
+      "rationale": "红方已连续 5 回合没能接通，机会来了：开始搭建蓝方的攻击通路。我的蓝光现在能沿第 4 行东行到右墙、反弹后西行经过 (13,4)；在此放 /，西行的光就折向南、沿第 13 列下行（(13,5)、(13,6) 是空位）。下一步若能在 (13,5) 再放 /，光就会转向西，经红方自己的 (12,5)/ 转下第 12 列——而第 12 列下方 (12,6)..(12,12) 全空，(12,13)/(12,14)/(12,15) 都是我的镜子，可透射到地面反射回来后从 (12,13) 右折直击红方基地 (13,13)。已用 analyze_variation 确认此手不使红方当前光束命中我基地。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 4,
+        "y": 5,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "无需防守，优先直接接通攻击，迫使对方应对；继续比较其防守与反击。",
+      "thinkingMs": 2774.7873750000726,
+      "search": {
+        "nodes": 22009,
+        "depth": 3,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:4:5",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方用 (4,5)/ 重新接通：光沿第 5 行东行到新镜，折上第 4 列，再经 (4,3)/ 东行、被我的 v:5:3 反回、经 (3,3) 一路接回老链。我在 (4.5,5) 放横边镜，紧贴新镜上方：从 (4,5) 北上的光立即被原路反回，新镜 (4,5) 作废，第 4 列在 y=5 以上的上行段也被截断。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 4,
+        "y": 6,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "无需防守，优先直接接通攻击，迫使对方应对；继续比较其防守与反击。",
+      "thinkingMs": 3099.546625000192,
+      "search": {
+        "nodes": 22326,
+        "depth": 3,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:4:7",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方改用 (4,6)/：沿第 6 行西行的光被新镜折下第 4 列，再由我的 h:4:10 反回后在 (4,9)/ 转东接回老链。我在 (4.5,7) 放横边镜，紧贴新镜下方：从 (4,6) 下行的光立即被原路反回，新镜 (4,6) 作废，第 4 列在 y=7..10 的下行段也彻底封死。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 3,
+        "y": 6,
+        "ori": "\\"
+      },
+      "actor": "rust-wasm",
+      "rationale": "无需防守，优先直接接通攻击，迫使对方应对；继续比较其防守与反击。",
+      "thinkingMs": 7707.367249999894,
+      "search": {
+        "nodes": 21533,
+        "depth": 3,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:10:7",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方用 (3,6)\\ 绕开：西行的光在左墙被我的 v:2:6 反回后东行，被新镜折下第 3 列，再经 h:3:8 反回、经 (3,7)/ 东行、被 v:5:7 反入 (4,7) 一带接回老链。但整条链的上游其实是第 10 列的自下而上登顶：光从 (10,11)（我的 \\ 镜）一路爬到 (10,6)（红方 \\）后才转西。我在 (10.5,7) 放横边镜，把第 10 列的登顶段切断，红方 (10,6) 及本轮新链整体失效。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 14,
+        "y": 6,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "无需防守，优先直接接通攻击，迫使对方应对；继续比较其防守与反击。",
+      "thinkingMs": 2796.8944579998497,
+      "search": {
+        "nodes": 21757,
+        "depth": 3,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:14:7",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "被封第 10 列后红方改从第 14 列登顶，用新放的 (14,6)/ 把上行的光折东、撞右墙后沿第 6 行一路西行到左墙（被我的 v:2:6 反回）再东行入 (3,6)\\ 下行，接回老链。我在 (14.5,7) 放横边镜，紧贴新镜下方：第 14 列登顶的光在到达 (14,6) 前就被原路反回，新镜 (14,6) 作废，第 14 列 y=7 以上的上行段也被截断。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 11,
+        "y": 10,
+        "ori": "/"
+      },
+      "actor": "rust-wasm",
+      "rationale": "无需防守，优先直接接通攻击，迫使对方应对；继续比较其防守与反击。",
+      "thinkingMs": 2162.0825420001056,
+      "search": {
+        "nodes": 21232,
+        "depth": 3,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:11:10",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方新放 (11,10)/：被我的 v:10:10 反回后东行的光在第 10 行撞上新镜、折上第 11 列，直登 y=0.5 后东行到 (13,0) 一带，重新接回通往底部蛇形的长链。我在 (11.5,10) 放横边镜，紧贴新镜上方：从 (11,10) 北上的光立即被原路反回，新镜作废，第 11 列的上行段也一并截断。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 12,
+        "y": 11,
+        "ori": "\\"
+      },
+      "actor": "rust-wasm",
+      "rationale": "无需防守，优先直接接通攻击，迫使对方应对；继续比较其防守与反击。",
+      "thinkingMs": 1697.2127080000937,
+      "search": {
+        "nodes": 21264,
+        "depth": 3,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "h:12:11",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方又换路：西行的光在第 10 行入 (11,10)/ 后南下第 11 列，被我的 h:11:12 反回后在 (11,11)/ 东行，由新镜 (12,11)\\ 折下第 12 列，在我的 h:12:13 反弹后北上第 12 列、（被 h:12:4 反回）、再从 (12,5)/ 西行第 5 行接回左翼老链。我在 (12.5,11) 放横边镜，紧贴新镜上方：从 (12,11) 下行的光立即被原路反回，新镜作废，第 12 列中段的上下通行也被截断。"
+    },
+    {
+      "color": "red",
+      "action": {
+        "kind": "diag",
+        "x": 12,
+        "y": 10,
+        "ori": "\\"
+      },
+      "actor": "rust-wasm",
+      "rationale": "无需防守，优先直接接通攻击，迫使对方应对；继续比较其防守与反击。",
+      "thinkingMs": 2186.740833000047,
+      "search": {
+        "nodes": 21282,
+        "depth": 3,
+        "mode": "attack",
+        "stopReason": "time-limit"
+      }
+    },
+    {
+      "color": "blue",
+      "action": {
+        "id": "v:12:10",
+        "kind": "edge"
+      },
+      "actor": "dsh",
+      "rationale": "红方又加新镜 (12,10)\\：沿第 10 行西行的光在它上面折上第 12 列，被我的 h:12:4 反回后由 (12,5)/ 转西沿第 5 行接回左翼老链。我在 (12,10.5) 放竖边镜，卡在新镜东侧：西行的光在抵达 (12,10) 前就被反回右墙，新镜作废，第 10 行 x=12 附近的横向通路也永久断开（不影响我未来的第 12 列纵向计划）。"
+    }
+  ],
+  "winner": "red",
+  "provenance": {
+    "engineSha256": "4943956d0252d3382ea77303680daf646f4b73d671621c975337d5189eafd48b",
+    "aiBudgetMs": 10000,
+    "source": "DSH headless / MCP"
+  }
+}

@@ -4,7 +4,7 @@ import { nextTick } from 'vue'
 import { makeAiRequest, type AiRequest, type AiResponse } from '../src/ai/protocol'
 import { aiStatus, retryAi, startAiController } from '../src/ai/controller'
 import {
-  applySnapshot, board, canAct, dispatch, dispatchAi, lastAiAnalysis, serialize, setupColor, startLocal,
+  applyRemote, applySnapshot, board, canAct, dispatch, dispatchAi, lastAiAnalysis, serialize, setupColor, startLocal,
   startOnline, state, tickClock, toLobby, topUndoFrame,
 } from '../src/store'
 
@@ -163,7 +163,39 @@ assert.equal(makeAiRequest(board, { phase: 'setup', players: state.players, curr
 console.log('ok: online guests never run AI; host alone controls AI seats')
 
 toLobby()
+startOnline('blue', '3002', ['blue', 'red'], ['blue'])
+assert.deepEqual([...state.aiPlayers], ['blue'])
+assert.equal(canAct.value, false, 'the host cannot manually play an AI-controlled seat')
+const beforeGuestHome = workers.length
+dispatch({ kind: 'setup', color: 'blue', home: { x: 2, y: 2, dir: 0 } })
+assert.equal(state.homes.blue, undefined)
+await nextTick()
+assert.equal(workers.length, beforeGuestHome, 'AI host waits for human homes')
+assert(applyRemote({ kind: 'setup', color: 'red', home: { x: 10, y: 8, dir: 2 } }))
+await nextTick()
+assert.equal(latest().request?.current, 0)
+latest().answer({ action: { kind: 'setup', home: { x: 2, y: 2, dir: 0 } } })
+await nextTick()
+assert.equal(state.phase, 'play')
+assert.equal(latest().request?.phase, 'play')
+latest().answer({ action: { kind: 'edge', id: 'h:13:14' } })
+await nextTick()
+assert.equal(state.current, 'red')
+assert.equal(state.edges.get('h:13:14')?.color, 'blue')
+dispatch({ kind: 'undo-setting', color: 'blue', allow: true })
+assert.equal(state.allowUndo, true, 'AI control does not remove room management authority')
+const aiHostSave = serialize()
+applySnapshot(aiHostSave)
+assert.deepEqual([...state.aiPlayers], ['blue'])
+assert.equal(state.myColor, 'blue')
+assert.equal(canAct.value, false)
+state.myColor = 'red'
+assert.equal(dispatchAi({ kind: 'edge', color: 'blue', id: 'h:12:14' }), false)
+console.log('ok: AI host waits for human setup, plays first, retains management and snapshot identity; guest cannot control it')
+
+toLobby()
 startLocal(2, ['red'])
+dispatch({ kind: 'clock-setting', color: 'blue', settings: { enabled: true, initialMs: 10_000, incrementMs: 0 } })
 dispatch({ kind: 'setup', color: 'blue', home: { x: 2, y: 2, dir: 0 } })
 await nextTick()
 latest().answer({ action: { kind: 'setup', home: { x: 10, y: 8, dir: 2 } } })
