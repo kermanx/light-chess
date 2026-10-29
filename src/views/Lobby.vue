@@ -56,12 +56,6 @@ function changeSeat(color: Color, event: Event) {
   if (value === 'dsh' && !aiProfileIds.value[color]) aiProfileIds.value[color] = defaultDshProfileId()
   aiSeats.value = ai ? [...aiSeats.value.filter(c => c !== color), color] : aiSeats.value.filter(c => c !== color)
 }
-function challengeAi() {
-  count.value = 2
-  aiSeats.value = ['red']
-  state.boundaryReflects = true
-  prepare('local')
-}
 /** 联机方式（3=中继，1/2=旧 P2P 协议） */
 const sig = ref<Signaling>('relay')
 /** 公开房间：创建后广播到大厅，其他玩家在加入页可直接看到并点击进入 */
@@ -256,10 +250,6 @@ onMounted(() => {
         <button class="card" @click="prepare('local')">
           <span class="card-title">单机对战</span>
           <span class="card-desc">自由搭配人类与 AI 座位</span>
-        </button>
-        <button class="card" @click="challengeAi">
-          <span class="card-title">挑战 AI</span>
-          <span class="card-desc">逻辑搜索，光路对决</span>
         </button>
         <button class="card" :disabled="busy" @click="prepare('online')">
           <span class="card-title">创建房间</span>

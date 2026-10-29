@@ -201,7 +201,8 @@ try {
 
   await host.getByRole('button', { name: '回到大厅' }).click()
   await host.evaluate(() => { __aiDelay = 150 })
-  await host.getByRole('button', { name: '挑战 AI', exact: false }).click()
+  await host.getByRole('button', { name: '单机对战', exact: false }).click()
+  await host.getByLabel('红方控制方式').selectOption('wasm')
   assert.equal(await host.getByLabel('红方控制方式').inputValue(), 'wasm')
   await host.getByRole('button', { name: '开始对局' }).click()
   await host.evaluate(() => { __aiError = true })
@@ -221,7 +222,7 @@ try {
   assert.equal(await host.locator('.ai-analysis').count(), 0)
   assert.deepEqual((await saved(host)).aiPlayers, ['red'])
   assert.deepEqual(errors, [])
-  console.log('ok: challenge entry, visible failure/retry, undo and restart during AI thinking')
+  console.log('ok: unified local/AI entry, visible failure/retry, undo and restart during AI thinking')
 } finally {
   await browser.close()
   await vite.close()
