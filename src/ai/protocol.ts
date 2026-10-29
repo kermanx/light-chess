@@ -30,10 +30,9 @@ export interface AiStats {
   plans?: number
   stopReason?: 'single-defense' | 'no-defense' | 'stable' | 'close-alternatives' | 'forced-win' | 'forcing-win' | 'depth-limit' | 'time-limit' | 'node-limit'
   reason?: string
-  forcing?: {
-    nodes: number; elapsedMs: number; completedDepth: number; attemptedDepth: number
-    status: 'unknown' | 'budget' | 'proven'; winningTurns: number | null; proof?: AiForcingProof
-  }
+  forcing?: AiForcingStats
+  /** Opponent checks after root placements; unknown/budget never certify safety. */
+  counterplay?: (AiForcingStats & { action: AiAction })[]
   iterations?: {
     depth: number
     /** Selected continuations from the searched tree, not a forced-win proof. */
@@ -44,6 +43,10 @@ export interface AiStats {
     depth: number
     candidates: { action: AiAction; score: number; selectionScore?: number; selectionPriority?: number; directAttack?: boolean; orderingScore: number; line?: AiAction[] }[]
   }
+}
+export interface AiForcingStats {
+  nodes: number; elapsedMs: number; completedDepth: number; attemptedDepth: number
+  status: 'unknown' | 'budget' | 'proven'; winningTurns: number | null; proof?: AiForcingProof
 }
 export interface AiForcingProof {
   action: AiAction

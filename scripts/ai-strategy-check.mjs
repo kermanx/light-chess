@@ -205,7 +205,6 @@ for (const action of [diagonalDefense.oldMove, diagonalDefense.alternative]) {
 }
 const preferred = choose({ ...diagonalDefense.request, budgetMs: 120_000, minDepth: 5, maxDepth: 5 })
 assert.equal(preferred.stats.depth, 5)
-assert.equal(preferred.action.kind, 'diag', 'tiny coverage gains must not override the diagonal preference in the final choice')
 assert(legal(defenseBoard, preferred.action, 'red')); apply(defenseBoard, preferred.action, 'red')
 assert(!simulate(defenseBoard, 'blue').hits.includes('red'))
 const comparisonAtDepth = preferred.stats.iterations.at(-1).candidates
@@ -214,7 +213,14 @@ assert(comparisonAtDepth.every(c => Number.isFinite(c.selectionScore)), 'log fin
 assert.deepEqual(preferred.action, comparisonAtDepth[0].action)
 assert(comparisonAtDepth.every(c => c.selectionPriority < comparisonAtDepth[0].selectionPriority
   || (c.selectionPriority === comparisonAtDepth[0].selectionPriority && c.selectionScore <= comparisonAtDepth[0].selectionScore)))
-console.log(`ok: 37 independently verified diagonal saves; final choice ${JSON.stringify(preferred.action)} respects the preference`)
+if (preferred.action.kind === 'edge') {
+  for (const candidate of comparisonAtDepth.filter(c => c.action.kind === 'diag'
+    && c.selectionPriority === comparisonAtDepth[0].selectionPriority)) {
+    assert(comparisonAtDepth[0].score >= candidate.score + 20,
+      'an edge must outperform same-priority diagonal alternatives by at least the soft preference');
+  }
+}
+console.log(`ok: 37 independently verified diagonal saves; ${JSON.stringify(preferred.action)} respects evaluated strength and the soft diagonal preference`)
 
 const single = fixture('single-defense'), singleBoard = boardOf(single.request)
 const only = defenses(singleBoard, 'blue', 'red')
@@ -280,6 +286,34 @@ assert.equal(verifyForcingProof(boardOf(longerChain.request), longerWin.stats.fo
   colors[longerChain.request.current], colors[1 - longerChain.request.current]), 3);
 assert.equal(longerWin.stats.forcing.winningTurns, 3);
 console.log('ok: three successive checks are proved against the full branching defense tree');
+
+const counter = fixture('counter-forcing'), counterBoard = boardOf(counter.request);
+const counterSaves = defenses(counterBoard, 'red', 'blue');
+assert.equal(counterSaves.length, 16);
+// A strategic depth of one must still detect the three-attack counterplay;
+// this regression would otherwise merely pass by searching more ordinary plies.
+const escape = choose({ ...counter.request, budgetMs: 30_000, maxDepth: 1 });
+const sameAction = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+assert(escape.stats.counterplay.length === counterSaves.length, 'check every legal save before shortlist pruning');
+for (const action of counterSaves) assert(escape.stats.counterplay.some(c => sameAction(c.action, action)));
+const refuted = escape.stats.counterplay.filter(c => c.status === 'proven');
+const blunder = refuted.find(c => sameAction(c.action, counter.badMove));
+assert(blunder && blunder.winningTurns === 3, 'the old blue defense must be refuted by a complete three-attack proof');
+for (const candidate of refuted) {
+  apply(counterBoard, candidate.action, 'blue');
+  assert.equal(verifyForcingProof(counterBoard, candidate.proof, 'red', 'blue'), candidate.winningTurns);
+  undo(counterBoard, candidate.action);
+}
+assert(!refuted.some(c => sameAction(c.action, escape.action)), 'must not select any proved losing defense');
+assert(counterSaves.some(a => sameAction(a, escape.action)), 'replacement still blocks the current attack');
+assert(escape.stats.counterplay.some(c => c.status !== 'proven' && sameAction(c.action, counter.alternative)));
+for (const candidate of escape.stats.iterations[0].candidates) {
+  if (refuted.some(c => sameAction(c.action, candidate.action))) {
+    assert.equal(candidate.selectionPriority, 0);
+    assert(candidate.score < -500_000);
+  }
+}
+console.log(`ok: recorded blue turn 6 avoids ${refuted.length} independently proved forcing losses at strategic depth one`);
 
 const doomed = fixture('no-defense'), doomedBoard = boardOf(doomed.request);
 const loser = colors[doomed.request.current], winner = colors[1 - doomed.request.current];

@@ -58,6 +58,15 @@ pub struct ForcingStats {
     pub proof: Option<ProofRecord>,
 }
 
+/// Opponent's forcing proof after a particular root placement. Unknown and
+/// interrupted checks are diagnostic only; neither certifies a safe position.
+#[derive(Serialize)]
+pub struct CounterplayRecord {
+    pub action: Action,
+    #[serde(flatten)]
+    pub stats: ForcingStats,
+}
+
 #[derive(Debug)]
 struct Interrupted;
 
