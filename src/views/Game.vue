@@ -5,6 +5,8 @@ import ChessClock from '../components/ChessClock.vue'
 import VictoryBeam from '../components/VictoryBeam.vue'
 import GameResult from '../components/GameResult.vue'
 import type { ClockSettings as ClockConfig } from '../clock'
+import { aiStatus, aiTurnColor, retryAi } from '../ai/controller'
+import { netClose } from '../net'
 import {
   edgeMid,
   edgeOf,
@@ -16,11 +18,15 @@ import {
   type Pt,
 } from '../game'
 import {
+  aiAuthority,
   board,
+  isAiPlayer,
+  toLobby,
   canAct,
   dispatch,
   hostColor,
   isHomeCell,
+  lastAiAnalysis,
   isValidExit,
   isValidHomeCell,
   isValidHomeSetup,
@@ -42,6 +48,7 @@ const u = (v: number) => PAD + v * S
 
 const COLORS = Object.fromEntries(PALETTE.map((p) => [p.id, p.hex])) as Record<Color, string>
 const name = (c: Color) => `${PALETTE.find((p) => p.id === c)?.name ?? c}方`
+const thinkingTime = (ms: number) => ms < 1 ? '不足 1 毫秒' : ms < 1000 ? `${Math.round(ms)} 毫秒` : `${(ms / 1000).toFixed(1)} 秒`
 
 const hoverEdge = ref<string | null>(null)
 const hoverCell = ref<Pt | null>(null)
@@ -314,6 +321,12 @@ function restart() {
   dispatch({ kind: 'restart', color: state.mode === 'online' ? state.myColor! : state.players[0] })
 }
 
+function leaveGame() {
+  netClose()
+  toLobby()
+  history.pushState(null, '', location.pathname.replace(/s\/[^/]+\/?$/, ''))
+}
+
 // ---------- 撤回一步 ----------
 
 /** 撤回是否开放：单机始终开放；联机由房主设置 */
@@ -326,7 +339,7 @@ const canUndoNow = computed(
     !state.peerLeft &&
     // 联机只能撤回自己刚下的那手，且不能撤到开启「允许撤回」之前的步骤
     (state.mode === 'local' ||
-      (state.lastMove?.color === state.myColor && undoDepth.value > state.undoFloor)),
+      ((state.lastMove?.color === state.myColor || (isHostSide.value && !!state.lastMove && isAiPlayer(state.lastMove.color))) && undoDepth.value > state.undoFloor)),
 )
 
 function undo() {
@@ -426,6 +439,7 @@ watch(
   () => state.size,
   () => {
     pendingHome.value = null
+    hoverExitDir.value = null
   },
 )
 
@@ -478,13 +492,18 @@ const ghostHomeBad = computed(() => {
 
 const statusColor = computed<Color | null>(() => {
   if (state.phase === 'over') return state.winner
-  if (state.phase === 'setup') return setupColor.value
+  if (state.phase === 'setup') return aiTurnColor.value ?? setupColor.value
   return state.current
 })
 
 const statusText = computed(() => {
   if (replayPlaying.value) return '致胜光路…'
   if (state.peerLeft) return '有玩家掉线，等待重连…'
+  if (aiTurnColor.value) {
+    if (state.aiPaused) return 'AI 已暂停，可以继续撤回或恢复思考'
+    if (aiAuthority() && aiStatus.status === 'error') return `${name(aiTurnColor.value)} AI 暂时无法落子`
+    return `${name(aiTurnColor.value)} AI 正在${state.phase === 'setup' ? '选择基地' : '思考'}…`
+  }
   if (ghostEdgeBad.value || ghostCellBad.value) return '此处放镜会把某对玩家的家隔开，不能放'
   if (state.phase === 'over') return `${name(state.winner!)}获胜！`
   if (state.phase === 'setup') {
@@ -770,7 +789,18 @@ const statusText = computed(() => {
     <aside class="side">
       <h1 class="logo-sm">光镜棋</h1>
 
-      <div :key="nudge" class="note status-note" :class="[statusColor ?? '', { nudged: nudge > 0 }]">{{ statusText }}</div>
+      <div :key="nudge" role="status" aria-live="polite" class="note status-note" :class="[statusColor ?? '', { nudged: nudge > 0 }]">{{ statusText }}</div>
+      <div v-if="aiStatus.status === 'error' && aiAuthority()" class="note ai-error" role="alert">
+        <p>{{ aiStatus.error }}</p>
+        <button class="btn-plain" @click="retryAi">重试 AI</button>
+      </div>
+      <div v-if="state.aiPaused && aiTurnColor && aiAuthority()" class="note">
+        <button class="btn-plain" @click="retryAi">恢复 AI 思考</button>
+      </div>
+      <div v-if="lastAiAnalysis" class="note ai-analysis" aria-label="AI 上一步说明">
+        <p class="ai-analysis-label">上一步 · {{ name(lastAiAnalysis.color) }} AI <span>思考 {{ thinkingTime(lastAiAnalysis.elapsedMs) }}</span></p>
+        <p v-if="lastAiAnalysis.reason" class="ai-analysis-reason">{{ lastAiAnalysis.reason }}</p>
+      </div>
       <ChessClock />
 
       <div class="note meta-note">
@@ -792,6 +822,7 @@ const statusText = computed(() => {
         <span v-if="state.mode === 'online'" class="room">
           房间 {{ state.roomCode }} · 你执{{ name(state.myColor!) }}
         </span>
+        <span v-for="c in state.aiPlayers" :key="`ai-${c}`" class="room" :style="{ color: COLORS[c] }">{{ name(c) }} AI · 每步最多 {{ state.aiBudgetMs / 1000 }} 秒</span>
         <span
           v-for="c in state.players.filter((c) => state.dead.includes(c))"
           :key="`dead-${c}`"
@@ -806,7 +837,7 @@ const statusText = computed(() => {
       <ClockSettings :settings="state.clockSettings" :disabled="state.phase !== 'setup' || !isHostSide" @change="changeClock" />
       <label class="chk">
         <input type="checkbox" :checked="state.boundaryReflects"
-          :disabled="state.phase !== 'setup' || !isHostSide" @change="toggleBoundary" />
+          :disabled="state.phase !== 'setup' || !isHostSide || state.aiPlayers.length > 0" @change="toggleBoundary" />
         边界反射
       </label>
       <template v-if="state.mode === 'online' && state.myColor === hostColor">
@@ -827,6 +858,7 @@ const statusText = computed(() => {
         <button v-if="undoAvailable" class="btn-plain" :disabled="!canUndoNow" @click="undo">撤回一步</button>
         <button v-if="isHostSide" class="btn-plain" @click="restart">重新开始</button>
       </div>
+      <button class="btn-plain" @click="leaveGame">回到大厅</button>
     </div>
 
     <div class="note help-note">
@@ -848,6 +880,11 @@ const statusText = computed(() => {
 </template>
 
 <style scoped>
+.ai-analysis-label { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 5px 12px; margin: 0; font-size: 13px; }
+.ai-analysis-label span { color: #8a7f68; }
+.ai-analysis-reason { margin: 10px 0 0; font-size: 14px; line-height: 1.6; }
+.ai-error { color: #b5372d; }
+.ai-error p { margin: 0 0 12px; }
 .game {
   display: flex;
   align-items: center;

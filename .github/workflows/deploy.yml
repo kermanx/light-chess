@@ -35,6 +35,10 @@ jobs:
             sudo sed -i 's|http://azure.archive.ubuntu.com/ubuntu|http://archive.ubuntu.com/ubuntu|g' "$mirror_list"
           done
           npx playwright install --with-deps chromium
+      - name: Check AI seats and real WASM runtime
+        run: |
+          node scripts/ai-mode-check.mjs
+          node scripts/ai-wasm-browser-check.mjs
       - name: Check multiplayer without WebRTC
         run: node scripts/relay-check.mjs
       - name: Check enclosure rule interactions

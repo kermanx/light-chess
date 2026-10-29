@@ -12,7 +12,7 @@
     "build:ai": "node scripts/build-ai.mjs",
     "predev": "npm run build:ai",
     "prebuild": "npm run build:ai",
-    "test:ai": "cargo test --manifest-path ai/Cargo.toml && npm run build:ai && node scripts/ai-engine-check.mjs && node scripts/ai-strategy-check.mjs"
+    "test:ai": "cargo test --manifest-path ai/Cargo.toml && npm run build:ai && node scripts/ai-engine-check.mjs && npx tsx scripts/ai-integration-check.ts && npx tsx scripts/ai-clock-check.ts && node scripts/ai-strategy-check.mjs && npx tsx scripts/ai-analysis-check.ts"
   },
   "dependencies": {
     "@trystero-p2p/mqtt": "^0.25.3",

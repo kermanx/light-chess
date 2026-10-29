@@ -1,6 +1,7 @@
 import { createApp } from 'vue'
 import './style.css'
 import App from './App.vue'
+import { startAiController } from './ai/controller'
 import { netClose, netRejoin } from './net'
 import { applySnapshot, broadcastClock, loadSave, persistGame, state, tickClock, toLobby, type Snapshot } from './store'
 
@@ -23,6 +24,7 @@ function restore(save: Snapshot) {
 const save = loadSave()
 const sid = sessionMatch()
 if (save && sid && save.sessionId === sid) restore(save)
+startAiController()
 
 // 用绝对时间计算剩余量，后台定时器被节流也不会漏扣时间。
 let lastClockSync = 0
