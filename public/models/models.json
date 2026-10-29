@@ -8,8 +8,20 @@
     "featureVersion": "dirlight30-v1",
     "channels": 30,
     "elo": 1655,
-    "recommended": true,
+    "recommended": false,
     "eloNote": "Elo 1655 为 MCTS sims150 评测结果；policy-only（不搜索）更弱。浏览器内 MCTS 强度随每步思考时间增长。"
+  },
+  {
+    "id": "lightchess-6x6-eqv-gen32",
+    "name": "光镜 6×6 等变 gen32",
+    "file": "lightchess_6x6_eqv_ext_gen32.onnx",
+    "dataFile": "lightchess_6x6_eqv_ext_gen32.onnx.data",
+    "boardSize": 6,
+    "featureVersion": "dirlight30-v1",
+    "channels": 30,
+    "elo": 1666,
+    "recommended": true,
+    "eloNote": "Elo 1666 为 MCTS sims150 评测结果（6×6 神经网络榜首）；policy-only（不搜索）更弱。浏览器内 MCTS 强度随每步思考时间增长。"
   },
   {
     "id": "lightchess-8x8-transfer-gen16",
@@ -31,8 +43,8 @@
     "boardSize": 8,
     "featureVersion": "dirlight30-v1",
     "channels": 30,
-    "elo": 1831,
+    "elo": 1848,
     "recommended": true,
-    "eloNote": "Elo 1831 为 MCTS sims150 评测结果（R10 对老锚胜率 94.5%）；policy-only（不搜索）更弱。浏览器内 MCTS 强度随每步思考时间增长。"
+    "eloNote": "Elo 1848 为 MCTS sims150 评测结果（R11 复评）；policy-only（不搜索）更弱。浏览器内 MCTS 强度随每步思考时间增长。"
   }
 ]

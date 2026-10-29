@@ -32,8 +32,20 @@ const FIXTURE_DIR = join(ROOT, 'test/fixtures')
 const MODELS_DIR = join(ROOT, 'public/models')
 
 const models = JSON.parse(readFileSync(join(MODELS_DIR, 'models.json'), 'utf8')) as NnModelInfo[]
-const bySize = new Map(models.map((m) => [m.boardSize, m]))
+// fixture 的 policy/value 与权重绑定：每个尺寸钉一个对拍模型，其余模型只做加载冒烟
+const PARITY_MODEL_IDS: Record<number, string> = {
+  6: 'lightchess-6x6-vitm-gen32',
+  8: 'lightchess-8x8-vitm-gen16',
+}
+const bySize = new Map<number, NnModelInfo>()
+for (const m of models) {
+  const prev = bySize.get(m.boardSize)
+  if (!prev || PARITY_MODEL_IDS[m.boardSize] === m.id) bySize.set(m.boardSize, m)
+}
 assert.ok(bySize.has(6) && bySize.has(8), 'models.json 需包含 6×6 与 8×8 模型')
+for (const [size, id] of Object.entries(PARITY_MODEL_IDS)) {
+  assert.equal(bySize.get(Number(size))?.id, id, `${size}×${size} 对拍模型 ${id} 不在 models.json`)
+}
 
 function makeBackend(model: NnModelInfo, session: ort.InferenceSession): NnBackend {
   return {
@@ -93,6 +105,18 @@ for (const [fixtureName, size] of [['parity_6x6.json', 6], ['parity_8x8.json', 8
   }
   assert.ok(worstP < 1e-4 && worstV < 1e-4, `${fixtureName} policy/value 对拍失败`)
   console.log(`${model.id} (${fixture.cases.length} 例): 掩码全等；policy max diff = ${worstP.toExponential(3)}, value max diff = ${worstV.toExponential(3)} OK`)
+}
+
+// ---------- 2b. models.json 全量加载冒烟（含非对拍模型，验证文件完好/输出维度） ----------
+for (const m of models) {
+  const session = await ort.InferenceSession.create(join(MODELS_DIR, m.file))
+  const empty = new ort.Tensor('float32', new Float32Array(m.channels * m.boardSize * m.boardSize),
+    [1, m.channels, m.boardSize, m.boardSize])
+  const out = await session.run({ x: empty })
+  assert.equal((out.policy.data as Float32Array).length, numActions(m.boardSize),
+    `${m.id} policy 维度不符`)
+  assert.equal((out.value.data as Float32Array).length, 1, `${m.id} value 维度不符`)
+  console.log(`${m.id}: 加载冒烟 OK`)
 }
 
 // ---------- 3. NN 自对弈（走 store 全规则校验） ----------
