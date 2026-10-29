@@ -127,7 +127,7 @@ export function startAiController(createWorker: () => Worker = () =>
       if (engine.kind === 'nn') {
         const message: NnWorkerMessage = {
           request,
-          nn: { modelId: engine.modelId, stochastic: engine.stochastic, modelsBase: MODELS_BASE },
+          nn: { modelId: engine.modelId, stochastic: engine.stochastic, modelsBase: MODELS_BASE, limit: engine.limit },
         }
         worker.postMessage(message)
       } else {

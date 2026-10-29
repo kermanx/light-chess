@@ -1,5 +1,5 @@
 import { computed, reactive, ref, watch } from 'vue'
-import { toAiMoveAnalysis, type AiMoveAnalysis } from './ai/protocol'
+import { toAiMoveAnalysis, type AiMoveAnalysis, type NnSearchLimit } from './ai/protocol'
 import { defaultClockSettings, freshClock, normalizeClockSettings, timeLeft, type ClockSettings, type ClockState, type ClockSync } from './clock'
 import {
   createsEnclosure,
@@ -26,10 +26,13 @@ export type Phase = 'lobby' | 'setup' | 'play' | 'over'
  * wasm.budgetMs 存在时覆盖全局值（向后兼容：旧存档/旧协议只有全局 aiBudgetMs）。
  * nn = 本地浏览器 NN 模型（onnxruntime-web，public/models/models.json 里的 modelId），
  * stochastic 为 true 时按温度 0.5 采样，否则 argmax。
+ * nn.limit：MCTS 计算量控制。{type:'sims'} 跑满指定模拟数（150 为训练/评测标准档）；
+ * 缺省或 {type:'time'} = 时间模式，跟全局 aiBudgetMs（旧存档/旧联机消息无 limit 字段）。
  */
+export type { NnSearchLimit }
 export type AiEngineSpec =
   | { kind: 'wasm'; budgetMs?: number }
-  | { kind: 'nn'; modelId: string; stochastic?: boolean }
+  | { kind: 'nn'; modelId: string; stochastic?: boolean; limit?: NnSearchLimit }
 
 export interface VictoryReplay {
   source: Color
@@ -165,7 +168,12 @@ export function sanitizeAiEngines(value: unknown): Partial<Record<Color, AiEngin
     if (!spec || typeof spec !== 'object') continue
     const s = spec as Record<string, unknown>
     if (s.kind === 'nn' && typeof s.modelId === 'string' && s.modelId) {
-      out[color as Color] = { kind: 'nn', modelId: s.modelId, ...(s.stochastic ? { stochastic: true } : {}) }
+      const l = s.limit as Record<string, unknown> | undefined
+      const limit: NnSearchLimit | undefined =
+        l?.type === 'sims' && Number.isInteger(l.sims) && (l.sims as number) > 0
+          ? { type: 'sims', sims: Math.min(l.sims as number, 10_000) }
+          : l?.type === 'time' ? { type: 'time' } : undefined
+      out[color as Color] = { kind: 'nn', modelId: s.modelId, ...(s.stochastic ? { stochastic: true } : {}), ...(limit ? { limit } : {}) }
     } else if (s.kind === 'wasm') {
       const budgetMs = typeof s.budgetMs === 'number' && [3000, 10000, 30000].includes(s.budgetMs) ? s.budgetMs : undefined
       out[color as Color] = { kind: 'wasm', ...(budgetMs ? { budgetMs } : {}) }

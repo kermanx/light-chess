@@ -37,11 +37,22 @@ const sizeModels = computed(() => nnModelsForSize(nnModels.value, state.size))
 const seatEngine = reactive<Record<string, string>>({})
 /** NN 座位的「随机」开关：开启后按温度 0.5 采样，否则 argmax */
 const seatStochastic = reactive<Record<string, boolean>>({})
+/** NN 座位的计算量模式：'time'（默认，共用全局思考上限）或 'sims'（固定模拟数） */
+const seatLimitMode = reactive<Record<string, 'time' | 'sims'>>({})
+/** NN 座位 sims 定额档（默认 150 = 训练/评测标准） */
+const seatSims = reactive<Record<string, number>>({})
+const limitModeOf = (c: string) => seatLimitMode[c] ?? 'time'
+const simsOf = (c: string) => seatSims[c] ?? 150
 const aiEngineSpecs = computed(() => {
   const out: Partial<Record<Color, AiEngineSpec>> = {}
   for (const c of selectedAi.value) {
     const model = sizeModels.value.find((m) => m.id === seatEngine[c])
-    out[c] = model ? { kind: 'nn', modelId: model.id, stochastic: !!seatStochastic[c] } : { kind: 'wasm' }
+    out[c] = model
+      ? {
+          kind: 'nn', modelId: model.id, stochastic: !!seatStochastic[c],
+          ...(limitModeOf(c) === 'sims' ? { limit: { type: 'sims' as const, sims: simsOf(c) } } : {}),
+        }
+      : { kind: 'wasm' }
   }
   return out
 })
@@ -277,20 +288,39 @@ onMounted(() => {
               <template v-if="selectedAi.includes(p.id)">
                 <select v-model="seatEngine[p.id]" class="sig-select" :aria-label="`${p.name}方 AI 引擎`">
                   <option value="wasm">内置引擎</option>
-                  <option v-for="m in sizeModels" :key="m.id" :value="m.id">
-                    {{ m.name }} · Elo {{ m.elo }}{{ m.recommended ? ' · 推荐' : '' }}
+                  <option v-for="m in sizeModels" :key="m.id" :value="m.id" :title="m.eloNote">
+                    {{ m.name }} · Elo {{ m.elo }}{{ m.eloNote ? '†' : '' }}{{ m.recommended ? ' · 推荐' : '' }}
                   </option>
                 </select>
-                <label v-if="sizeModels.some((m) => m.id === seatEngine[p.id])" class="laser-opt seat-stochastic">
-                  <input type="checkbox" v-model="seatStochastic[p.id]" />
-                  随机
-                </label>
+                <template v-if="sizeModels.some((m) => m.id === seatEngine[p.id])">
+                  <select
+                    class="sig-select" :aria-label="`${p.name}方 NN 计算量`"
+                    :value="limitModeOf(p.id)"
+                    @change="seatLimitMode[p.id] = ($event.target as HTMLSelectElement).value as 'time' | 'sims'"
+                  >
+                    <option value="time">按时间</option>
+                    <option value="sims">按模拟数</option>
+                  </select>
+                  <select
+                    v-if="limitModeOf(p.id) === 'sims'" class="sig-select" :aria-label="`${p.name}方 MCTS 模拟数`"
+                    :value="simsOf(p.id)"
+                    @change="seatSims[p.id] = Number(($event.target as HTMLSelectElement).value)"
+                  >
+                    <option :value="50">50 sims（快速）</option>
+                    <option :value="150">150 sims（训练/评测标准）</option>
+                    <option :value="400">400 sims（棋力优先）</option>
+                  </select>
+                  <label class="laser-opt seat-stochastic">
+                    <input type="checkbox" v-model="seatStochastic[p.id]" />
+                    随机
+                  </label>
+                </template>
               </template>
             </span>
           </div>
         </div>
         <label v-if="hasAi" class="laser-opt">
-          内置引擎每步最多思考
+          AI 每步最多思考（内置引擎与「按时间」NN 座位共用）
           <select v-model.number="state.aiBudgetMs" class="sig-select" aria-label="AI 每步思考上限">
             <option :value="3000">3 秒</option>
             <option :value="10000">10 秒</option>

@@ -8,7 +8,8 @@
     "featureVersion": "dirlight30-v1",
     "channels": 30,
     "elo": 1664,
-    "recommended": true
+    "recommended": true,
+    "eloNote": "Elo 1664 为 MCTS sims150 评测结果；policy-only（不搜索）更弱。浏览器内 MCTS 强度随每步思考时间增长。"
   },
   {
     "id": "lightchess-8x8-transfer-gen16",
@@ -19,6 +20,7 @@
     "featureVersion": "dirlight30-v1",
     "channels": 30,
     "elo": 1629,
-    "recommended": false
+    "recommended": false,
+    "eloNote": "Elo 1629 为 MCTS sims150 评测结果；policy-only（不搜索）更弱。浏览器内 MCTS 强度随每步思考时间增长。"
   }
 ]

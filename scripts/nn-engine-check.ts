@@ -20,6 +20,7 @@ import {
   numActions,
   type NnBackend,
 } from '../src/ai/nn-core'
+import { chooseNnMctsAction, type BatchEvaluator } from '../src/ai/nn-mcts'
 import { makeAiRequest } from '../src/ai/protocol'
 import { PALETTE, type BoardState, type Color } from '../src/game'
 import { board, dispatchAi, setGamePersistenceEnabled, state, startLocal } from '../src/store'
@@ -145,5 +146,105 @@ const r1 = await selfPlay(6, 20241029, false)
 const r2 = await selfPlay(6, 777, true)
 const r3 = await selfPlay(8, 20241029, false)
 assert.ok([r1, r2, r3].includes('over'), '三局自对弈至少一局应分出胜负')
+
+// ---------- 4. MCTS 自对弈（预算驱动；走 store 全规则校验） ----------
+function makeBatchEvaluator(model: NnModelInfo, session: ort.InferenceSession): BatchEvaluator {
+  return async (boards) => {
+    const b0 = boards[0]
+    const merged = new Float32Array(boards.length * b0.length)
+    for (let i = 0; i < boards.length; i++) merged.set(boards[i], i * b0.length)
+    const input = new ort.Tensor('float32', merged, [boards.length, model.channels, model.boardSize, model.boardSize])
+    const out = await session.run({ x: input })
+    const policy = out.policy.data as Float32Array
+    const value = out.value.data as Float32Array
+    const na = policy.length / boards.length
+    return boards.map((_, i) => ({ policy: policy.slice(i * na, (i + 1) * na), value: value[i] }))
+  }
+}
+
+async function selfPlayMcts(size: 6 | 8, seed: number, budgetMs: number, sims?: number) {
+  const model = bySize.get(size)!
+  const session = await ort.InferenceSession.create(join(MODELS_DIR, model.file))
+  const evaluate = makeBatchEvaluator(model, session)
+  const rng = mulberry32(seed)
+  state.size = size
+  const engines = { kind: 'nn' as const, modelId: model.id }
+  startLocal(2, ['blue', 'red'], { blue: engines, red: engines })
+  const cap = numActions(size)
+  let plies = 0
+  let simsTotal = 0
+  let playMoves = 0
+  while (state.phase !== 'over' && plies < cap) {
+    const phase = state.phase as 'setup' | 'play'
+    const color: Color = phase === 'setup'
+      ? state.players.find((c) => !state.homes[c])!
+      : state.current
+    const req = makeAiRequest(board, { phase, players: state.players, current: color, dead: state.dead, budgetMs })
+    const res = await chooseNnMctsAction(evaluate, req, { featureVersion: model.featureVersion, budgetMs, sims, rng, modelName: model.name })
+    assert.ok(res.action && !res.error, `NN MCTS 报错：${res.error}`)
+    const b2 = boardFromRequest(req)
+    const alive = state.players.filter((c) => !state.dead.includes(c))
+    if (phase === 'setup') {
+      assert.equal(res.action.kind, 'setup')
+    } else {
+      assert.notEqual(res.action.kind, 'setup')
+      const idx = actionToIndex(res.action, size)
+      assert.ok(legalActionIndices(b2, color, alive).includes(idx), `MCTS 落子非法：idx=${idx} ${JSON.stringify(res.action)}`)
+      // 必平根按设计跳过 sims（Python mcts.py 同语义），逐手只断言候选回填，sims 按整局累计断言
+      assert.ok((res.stats?.iterations?.[0]?.candidates.length ?? 0) > 0, 'MCTS 统计未回填候选')
+      if (sims) {
+        // 定额模式：实际 sims 不超发；非必平根应恰好跑满（每次选择恰贡献一次回溯，最后一波截断）
+        const got = res.stats!.nodes
+        assert.ok(got <= sims, `sims 超发：请求 ${sims} 实际 ${got}`)
+        assert.ok(got === sims || got === 0, `sims 定额不符：请求 ${sims} 实际 ${got}`)
+      }
+      simsTotal += res.stats!.nodes
+      playMoves++
+    }
+    const accepted = dispatchAi({ ...res.action, color } as never)
+    assert.ok(accepted, `dispatchAi 拒绝了 MCTS 落子：${JSON.stringify(res.action)}`)
+    plies++
+  }
+  const avgSims = playMoves ? simsTotal / playMoves : 0
+  assert.ok(simsTotal > 0, '整局 MCTS sims 为 0')
+  const result = state.phase === 'over' ? `${state.winner} 胜` : `达到上限手数 ${cap}`
+  console.log(`MCTS 自对弈 ${size}×${size}（${sims ? `sims=${sims} 定额` : `budget=${budgetMs}ms`}，seed=${seed}）: ${plies} 手，${result}，平均 ${avgSims.toFixed(0)} sims/手 OK`)
+  return { phase: state.phase, avgSims }
+}
+
+await selfPlayMcts(6, 424242, 1000)
+await selfPlayMcts(6, 515151, 3000)
+await selfPlayMcts(6, 626262, 3000, 150) // sims 定额模式（训练/评测标准档）
+
+// ---------- 5. MCTS 性能基准（node，6×6 同一固定局面，1s vs 3s 预算） ----------
+{
+  const model = bySize.get(6)!
+  const session = await ort.InferenceSession.create(join(MODELS_DIR, model.file))
+  const evaluate = makeBatchEvaluator(model, session)
+  const rng = mulberry32(99)
+  state.size = 6
+  const engines = { kind: 'nn' as const, modelId: model.id }
+  startLocal(2, ['blue', 'red'], { blue: engines, red: engines })
+  // 双方固定选家（确定性，免去 setup 随机性）
+  for (const color of state.players) {
+    const req = makeAiRequest(board, { phase: 'setup', players: state.players, current: color, dead: [], budgetMs: 1 })
+    const homes = legalSetupHomes(boardFromRequest(req), state.players, color)
+    assert.ok(dispatchAi({ kind: 'setup', color, home: homes[Math.floor(rng() * homes.length)] } as never))
+  }
+  const bench = async (budgetMs: number) => {
+    const req = makeAiRequest(board, { phase: 'play', players: state.players, current: state.current, dead: state.dead, budgetMs })
+    const t0 = Date.now()
+    const res = await chooseNnMctsAction(evaluate, req, { featureVersion: model.featureVersion, budgetMs, rng, modelName: model.name })
+    const elapsed = (Date.now() - t0) / 1000
+    assert.ok(res.action && !res.error, `基准搜索失败：${res.error}`)
+    const sims = res.stats!.nodes
+    console.log(`MCTS 基准（node，6×6 开局，budget=${budgetMs}ms）: ${sims} sims / ${elapsed.toFixed(2)}s ≈ ${(sims / elapsed).toFixed(0)} sims/s`)
+    return sims
+  }
+  const sims1 = await bench(1000)
+  const sims3 = await bench(3000)
+  assert.ok(sims1 > 0 && sims3 > sims1, `同一局面 sims 应随预算增长：1s=${sims1} 3s=${sims3}`)
+}
+
 console.log('NN 引擎检查全部通过')
 process.exit(0)

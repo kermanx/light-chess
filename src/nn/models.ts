@@ -16,6 +16,8 @@ export interface NnModelInfo {
   featureVersion: FeatureVersion
   channels: number
   elo: number
+  /** Elo 的评测条件注记（如 "Elo 1664 为 MCTS sims150 评测；policy-only 更弱"），Lobby 悬停显示 */
+  eloNote?: string
   recommended: boolean
 }
 
