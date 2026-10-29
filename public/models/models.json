@@ -9,7 +9,7 @@
     "channels": 30,
     "elo": 1655,
     "recommended": false,
-    "eloNote": "Elo 1655 为 MCTS sims150 评测结果；policy-only（不搜索）更弱。浏览器内 MCTS 强度随每步思考时间增长。"
+    "eloNote": "Elo 1655 为 MCTS sims100 评测结果；policy-only（不搜索）更弱。浏览器内 MCTS 强度随每步思考时间增长。"
   },
   {
     "id": "lightchess-6x6-eqv-gen32",
@@ -21,7 +21,7 @@
     "channels": 30,
     "elo": 1666,
     "recommended": true,
-    "eloNote": "Elo 1666 为 MCTS sims150 评测结果（6×6 神经网络榜首）；policy-only（不搜索）更弱。浏览器内 MCTS 强度随每步思考时间增长。"
+    "eloNote": "Elo 1666 为 MCTS sims100 评测结果（6×6 神经网络榜首）；policy-only（不搜索）更弱。浏览器内 MCTS 强度随每步思考时间增长。"
   },
   {
     "id": "lightchess-8x8-transfer-gen16",
@@ -33,7 +33,7 @@
     "channels": 30,
     "elo": 1629,
     "recommended": false,
-    "eloNote": "Elo 1629 为 MCTS sims150 评测结果；policy-only（不搜索）更弱。浏览器内 MCTS 强度随每步思考时间增长。"
+    "eloNote": "Elo 1629 为 MCTS sims100 评测结果；policy-only（不搜索）更弱。浏览器内 MCTS 强度随每步思考时间增长。"
   },
   {
     "id": "lightchess-8x8-vitm-gen16",
@@ -45,6 +45,6 @@
     "channels": 30,
     "elo": 1848,
     "recommended": true,
-    "eloNote": "Elo 1848 为 MCTS sims150 评测结果（R11 复评）；policy-only（不搜索）更弱。浏览器内 MCTS 强度随每步思考时间增长。"
+    "eloNote": "Elo 1848 为 MCTS sims100 评测结果（R11 复评）；policy-only（不搜索）更弱。浏览器内 MCTS 强度随每步思考时间增长。"
   }
 ]
