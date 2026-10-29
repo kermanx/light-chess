@@ -148,22 +148,10 @@ export function createsEnclosure(
 
 const center = (x: number, y: number): Pt => ({ x: x + 0.5, y: y + 0.5 })
 
-const stateKey = (x: number, y: number, d: Dir) => `${x},${y},${d}`
-
 const segKey = (p: Pt, q: Pt) =>
   p.x < q.x || (p.x === q.x && p.y <= q.y)
     ? `${p.x},${p.y}|${q.x},${q.y}`
     : `${q.x},${q.y}|${p.x},${p.y}`
-
-interface Node {
-  x: number
-  y: number
-  dir: Dir
-  /** 从父节点到本节点新增的折点 */
-  pts: Pt[]
-  /** 父节点在 nodes 中的下标，-1 表示根 */
-  parent: number
-}
 
 /**
  * 模拟 color 方从家中心向四个方向发射的激光。
@@ -172,94 +160,70 @@ interface Node {
  * 进入任一非己方的家即命中（被吸收，该分支终止）。
  * 用全局状态访问表剪枝：同一 (x, y, dir) 状态的后续光路是确定的，无需重复探索。
  */
-export function simulate(board: BoardState, color: Color): SimResult {
+export function simulate(board: BoardState, color: Color, options: { geometry?: boolean; stopAt?: Color } = {}): SimResult {
+  const geometry = options.geometry !== false
   const home = board.homes[color]
-  // 非己方的家都是命中目标
-  const targets = new Map<string, Color>()
+  const targets = new Map<number, Color>()
   for (const [c, h] of Object.entries(board.homes)) {
-    if (c !== color && h) targets.set(`${h.x},${h.y}`, c as Color)
+    if (c !== color && h) targets.set(h.y * board.size + h.x, c as Color)
   }
   const empty: SimResult = { hit: false, hits: [], segments: [], hitPath: null, hitPaths: {} }
   if (!home || targets.size === 0) return empty
   const size = board.size
-
+  // Numeric directional states share the exact same traversal for rendering and
+  // tactical validation. Validation skips geometry allocation and can stop at a
+  // specific hit; it never shortens an unsuccessful trace.
+  const source = (home.y * size + home.x) * 4
+  const queue = [source, source + 1, source + 2, source + 3]
+  const visited = new Uint8Array(size * size * 4)
+  for (const state of queue) visited[state] = 1
+  const parent = geometry ? new Int32Array(size * size * 4).fill(-1) : null
   const segSet = new Map<string, [Pt, Pt]>()
   const addSeg = (p: Pt, q: Pt) => segSet.set(segKey(p, q), [p, q])
-
-  const homePt = center(home.x, home.y)
-  // 从家中起步，让三面家镜也按普通己方镜处理：穿过和反射都继续追踪。
-  const nodes: Node[] = ([0, 1, 2, 3] as Dir[]).map((dir) => ({
-    x: home.x, y: home.y, dir, pts: [], parent: -1,
-  }))
-  const visited = new Set<string>()
-  let hit = false
   const hits: Color[] = []
-  const hitNodes = new Map<Color, number>()
-
-  // 每一步（跨格或到边镜折返）的路程相同，广度优先保留最短命中光路，
-  // 避免动画先沿半反射分支绕棋盘一圈才到达目标。
-  for (let ni = 0; ni < nodes.length; ni++) {
-    const node = nodes[ni]
-    const key = stateKey(node.x, node.y, node.dir)
-    if (visited.has(key)) continue
-    visited.add(key)
-
-    const target = targets.get(`${node.x},${node.y}`)
+  const hitStates = new Map<Color, number>()
+  for (let i = 0; i < queue.length; i++) {
+    const state = queue[i]!, cell = Math.floor(state / 4), dir = (state % 4) as Dir
+    const x = cell % size, y = Math.floor(cell / size)
+    const target = targets.get(cell)
     if (target) {
-      hit = true
       if (!hits.includes(target)) hits.push(target)
-      if (!hitNodes.has(target)) hitNodes.set(target, ni)
-      continue // 被打中的家吸收激光
+      if (geometry && !hitStates.has(target)) hitStates.set(target, state)
+      if (!geometry && target === options.stopAt) break
+      continue
     }
-
-    const diag = board.diags.get(`${node.x},${node.y}`)
-    let dirs: Dir[]
-    if (diag) {
-      const r = REFL[diag.ori][node.dir]
-      dirs = diag.color === color ? [node.dir, r] : [r]
-    } else {
-      dirs = [node.dir]
-    }
-
+    const diag = board.diags.get(`${x},${y}`)
+    const dirs = diag ? (diag.color === color ? [dir, REFL[diag.ori][dir]] : [REFL[diag.ori][dir]]) : [dir]
     for (const d of dirs) {
-      const eid = edgeOf(node.x, node.y, d)
-      const m = board.edges.get(eid)
-      const boundaryMirror = board.boundaryReflects && !inside(node.x + DX[d], node.y + DY[d], size)
-      // 无镜：穿过；己镜：穿过+反射（半反射）；敌镜：必须反射
-      // 开启边界反射时，边界优先于镜子颜色，任何光线都只能反射。
-      const outs: Dir[] = boundaryMirror ? [opp(d)] : m ? (m.color === color ? [d, opp(d)] : [opp(d)]) : [d]
-      for (const d2 of outs) {
-        if ((boundaryMirror || m) && d2 === opp(d)) {
-          // 在边上反射回本格
-          const mid = edgeMid(eid)
-          const c = center(node.x, node.y)
-          addSeg(c, mid)
-          addSeg(mid, c)
-          nodes.push({ x: node.x, y: node.y, dir: d2, pts: [mid, c], parent: ni })
-        } else {
-          const nx = node.x + DX[d2]
-          const ny = node.y + DY[d2]
-          const c = center(node.x, node.y)
-          if (!inside(nx, ny, size)) {
-            addSeg(c, edgeMid(eid))
-          } else {
-            addSeg(c, center(nx, ny))
-            nodes.push({ x: nx, y: ny, dir: d2, pts: [center(nx, ny)], parent: ni })
-          }
+      const eid = edgeOf(x, y, d), mirror = board.edges.get(eid)
+      const boundary = board.boundaryReflects && !inside(x + DX[d], y + DY[d], size)
+      const outs = boundary ? [opp(d)] : mirror ? (mirror.color === color ? [d, opp(d)] : [opp(d)]) : [d]
+      for (const out of outs) {
+        const reflected = (boundary || mirror) && out === opp(d)
+        const nx = reflected ? x : x + DX[out], ny = reflected ? y : y + DY[out]
+        if (geometry) {
+          if (reflected) { addSeg(center(x, y), edgeMid(eid)); addSeg(edgeMid(eid), center(x, y)) }
+          else addSeg(center(x, y), inside(nx, ny, size) ? center(nx, ny) : edgeMid(eid))
         }
+        if (!inside(nx, ny, size)) continue
+        const next = (ny * size + nx) * 4 + out
+        if (visited[next]) continue
+        visited[next] = 1
+        if (parent) parent[next] = state
+        queue.push(next)
       }
     }
   }
-
   const hitPaths: Partial<Record<Color, Pt[]>> = {}
-  for (const [color, hitNode] of hitNodes) {
-    const rev: Pt[] = []
-    for (let i = hitNode; i !== -1; i = nodes[i].parent) {
-      const pts = nodes[i].pts
-      for (let j = pts.length - 1; j >= 0; j--) rev.push(pts[j])
+  if (parent) for (const [target, end] of hitStates) {
+    const reversed: Pt[] = []
+    for (let state = end; parent[state] !== -1; state = parent[state]!) {
+      const cell = Math.floor(state / 4), prevCell = Math.floor(parent[state]! / 4)
+      const x = cell % size, y = Math.floor(cell / size)
+      reversed.push(center(x, y))
+      if (cell === prevCell) reversed.push(edgeMid(edgeOf(x, y, opp((state % 4) as Dir))))
     }
-    hitPaths[color] = [homePt, ...rev.reverse()]
+    hitPaths[target] = [center(home.x, home.y), ...reversed.reverse()]
   }
-
-  return { hit, hits, segments: [...segSet.values()], hitPath: hitPaths[hits[0]] ?? null, hitPaths }
+  return { hit: hits.length > 0, hits, segments: [...segSet.values()], hitPath: hitPaths[hits[0]!] ?? null, hitPaths }
 }

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import { MAX_PLAYERS, MIN_PLAYERS, PALETTE, type Color } from '../game'
+import { MAX_PLAYERS, MIN_PLAYERS, PALETTE, seatColors, type Color } from '../game'
 import { announceRoom, watchRooms, type PublicRoom } from '../directory'
 import { isValidCode, netClose, netCreate, netJoin, signaling, type Signaling } from '../net'
 import { SIZE_MAX, SIZE_MIN, startLocal, state } from '../store'
@@ -10,6 +10,8 @@ import { defaultDshProfileId, readDshConfig } from '../ai/config'
 import type { AiProfileIds, AiProvider, AiProviders } from '../ai/providers'
 import ClockSettings from '../components/ClockSettings.vue'
 import { appBase } from '../replay/navigation'
+import { defaultOpeningSettings, maxOpeningMirrors, normalizeOpeningSettings, type OpeningPosition } from '../opening'
+import { prepareOpening, openingProgressLabel } from '../prepare-opening'
 
 const view = ref<'menu' | 'configure' | 'created' | 'join'>('menu')
 const preparing = ref<'local' | 'online'>('local')
@@ -20,6 +22,23 @@ const busy = ref(false)
 const copied = ref(false)
 /** 玩家人数（单机与创建房间共用） */
 const count = ref(MIN_PLAYERS)
+const openingSettings = ref(defaultOpeningSettings())
+const openingLimit = computed(() => maxOpeningMirrors(state.size, count.value))
+watch([() => state.size, count], () => {
+  openingSettings.value = normalizeOpeningSettings(openingSettings.value, state.size, count.value)
+})
+const openingProgress = ref('')
+let openingAbort: AbortController | undefined
+let generatedOpening: OpeningPosition | undefined
+async function generateConfiguredOpening() {
+  openingAbort?.abort()
+  openingAbort = new AbortController()
+  openingProgress.value = openingSettings.value.enabled ? '正在生成并校验预设局面…' : ''
+  try {
+    return await prepareOpening(openingSettings.value, state.size, seatColors(count.value), state.boundaryReflects,
+      openingAbort.signal, status => { openingProgress.value = openingProgressLabel(status) })
+  } finally { openingProgress.value = '' }
+}
 const aiSeats = ref<Color[]>([])
 const aiProviders = ref<AiProviders>({})
 const aiProfileIds = ref<AiProfileIds>({})
@@ -86,15 +105,20 @@ function checkProfiles() {
     aiProfileIds.value[color] ||= defaultDshProfileId()
   }
 }
-function local() {
+async function local() {
+  busy.value = true
+  error.value = ''
   try {
     checkProfiles()
-    startLocal(count.value, selectedAi.value, aiProviders.value, aiProfileIds.value)
+    const opening = await generateConfiguredOpening()
+    startLocal(count.value, selectedAi.value, aiProviders.value, aiProfileIds.value, opening)
   } catch (e) { error.value = (e as Error).message }
+  finally { busy.value = false }
 }
 
 function prepare(mode: 'local' | 'online') {
   preparing.value = mode
+  generatedOpening = undefined
   error.value = ''
   view.value = 'configure'
 }
@@ -139,6 +163,7 @@ watch(view, async (v) => {
 })
 
 onUnmounted(() => {
+  openingAbort?.abort()
   stopAnnouncing()
   stopWatching()
 })
@@ -155,7 +180,8 @@ async function create() {
   error.value = ''
   try {
     checkProfiles()
-    code.value = await netCreate(count.value, sig.value, selectedAi.value, aiProviders.value, aiProfileIds.value)
+    generatedOpening = await generateConfiguredOpening()
+    code.value = await netCreate(count.value, sig.value, selectedAi.value, aiProviders.value, aiProfileIds.value, generatedOpening)
     if (state.phase !== 'lobby') return
     view.value = 'created'
     void syncAnnounce()
@@ -174,7 +200,7 @@ async function onSigChange(e: Event) {
   error.value = ''
   try {
     checkProfiles()
-    code.value = await netCreate(count.value, sig.value, selectedAi.value, aiProviders.value, aiProfileIds.value)
+    code.value = await netCreate(count.value, sig.value, selectedAi.value, aiProviders.value, aiProfileIds.value, generatedOpening)
     void syncAnnounce()
   } catch (err) {
     error.value = (err as Error).message
@@ -199,6 +225,7 @@ async function join() {
 }
 
 function cancel() {
+  openingAbort?.abort()
   netClose()
   stopAnnouncing()
   stopWatching()
@@ -295,6 +322,19 @@ onMounted(() => {
           <input class="size-input" type="number" :min="SIZE_MIN" :max="SIZE_MAX" :value="state.size" @change="clampSize" />
           × {{ state.size }} 格
         </label>
+        <div class="opening-settings">
+          <label class="laser-opt">
+            <input type="checkbox" v-model="openingSettings.enabled" />
+            生成预设基地与镜子
+          </label>
+          <template v-if="openingSettings.enabled">
+            <label class="opening-count" for="opening-count">每方额外镜子 <strong>{{ openingSettings.mirrorsPerPlayer }} 面</strong></label>
+            <input id="opening-count" class="opening-slider" type="range" min="1" :max="openingLimit" step="1"
+              v-model.number="openingSettings.mirrorsPerPlayer" aria-label="每方预设镜子数" />
+            <div class="opening-range"><span>1 面</span><span>{{ openingLimit }} 面</span></div>
+            <p class="ai-hint">不含基地自带的 3 面镜子，各方数量相同。基地与镜子随机生成，校验禁围、所有光路及首手攻防，排除一手无解的开局，蓝方先手。</p>
+          </template>
+        </div>
         <ClockSettings :settings="state.clockSettings" @change="state.clockSettings = $event" />
         <label class="laser-opt">
           <input type="checkbox" v-model="state.boundaryReflects" :disabled="hasAi" />
@@ -305,9 +345,10 @@ onMounted(() => {
           公开房间（允许其他玩家发现并加入）
         </label>
       </fieldset>
+      <p v-if="openingProgress" class="ai-hint" role="status">{{ openingProgress }}</p>
       <div class="row">
         <button class="btn-primary" :disabled="busy" @click="preparing === 'local' ? local() : create()">
-          {{ preparing === 'local' ? '开始对局' : busy ? '正在创建…' : '创建并等待' }}
+          {{ openingProgress ? '正在生成局面…' : busy ? '正在准备…' : preparing === 'local' ? '开始对局' : '创建并等待' }}
         </button>
         <button class="btn-plain" :disabled="busy" @click="cancel">返回</button>
       </div>
@@ -327,9 +368,10 @@ onMounted(() => {
       </div>
 
       <div class="settings">
+        <p v-if="state.openingSettings.enabled" class="ai-hint">预设局面已准备 · 每方 {{ state.openingSettings.mirrorsPerPlayer }} 面额外镜子；所有玩家将使用同一盘局面。</p>
         <ClockSettings :settings="state.clockSettings" @change="state.clockSettings = $event" />
         <label class="laser-opt">
-          <input type="checkbox" v-model="state.boundaryReflects" :disabled="hasAi" />
+          <input type="checkbox" v-model="state.boundaryReflects" :disabled="hasAi || state.openingSettings.enabled" />
           边界反射（所有光线碰到边界都会反射）
         </label>
         <label class="laser-opt">
@@ -352,6 +394,7 @@ onMounted(() => {
             :min="SIZE_MIN"
             :max="SIZE_MAX"
             :value="state.size"
+            :disabled="state.openingSettings.enabled"
             @change="clampSize"
           />
           × {{ state.size }} 格
@@ -424,6 +467,12 @@ onMounted(() => {
 </template>
 
 <style scoped>
+.opening-settings { display: flex; flex-direction: column; gap: 10px; padding: 14px; background: #eee7d8; border: 1px solid #d2c5aa; border-radius: 9px; }
+.opening-count, .opening-range { display: flex; justify-content: space-between; gap: 12px; }
+.opening-count { font-size: 14px; }
+.opening-count strong { color: #2f6fed; font-weight: 600; font-variant-numeric: tabular-nums; }
+.opening-slider { width: 100%; margin: 0; accent-color: #2f6fed; cursor: pointer; }
+.opening-range { font-size: 12px; color: #8a7f68; }
 .seat-card { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .replay-entry { color: inherit; text-decoration: none; }
 .seat-settings { display: flex; flex-direction: column; gap: 10px; }

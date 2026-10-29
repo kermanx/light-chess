@@ -1,6 +1,7 @@
 import { computed, reactive, ref, watch } from 'vue'
 import { toAiMoveAnalysis, type AiMoveAnalysis } from './ai/protocol'
 import type { AiProfileIds, AiProvider, AiProviders } from './ai/providers'
+import { defaultOpeningSettings, normalizeOpeningSettings, validOpening, type OpeningPosition, type OpeningSettings } from './opening'
 import { defaultClockSettings, freshClock, normalizeClockSettings, timeLeft, type ClockSettings, type ClockState, type ClockSync } from './clock'
 import {
   createsEnclosure,
@@ -62,7 +63,7 @@ export type Action =
   | { kind: 'boundary-setting'; color: Color; enabled: boolean }
   | { kind: 'clock-setting'; color: Color; settings: ClockSettings }
   | { kind: 'timeout'; color: Color; turn: number }
-  | { kind: 'restart'; color: Color }
+  | { kind: 'restart'; color: Color; opening?: OpeningPosition }
 
 export const state = reactive({
   mode: null as 'local' | 'online' | null,
@@ -98,6 +99,8 @@ export const state = reactive({
   allowUndo: false,
   /** 开局前可改；开启时边界对所有颜色的光全反射 */
   boundaryReflects: true,
+  openingSettings: defaultOpeningSettings(),
+  openingSeed: null as number | null,
   clockSettings: defaultClockSettings(),
   clock: freshClock(defaultClockSettings()),
   timedOut: [] as Color[],
@@ -268,7 +271,7 @@ const pushSessionUrl = () => {
   }
 }
 
-function resetBoard() {
+function resetBoard(opening?: OpeningPosition) {
   state.positionRevision++
   state.aiPaused = false
   // 注意：board.homes 持有本对象的引用，必须原地修改，不能整体替换
@@ -283,11 +286,24 @@ function resetBoard() {
   state.timedOut = []
   state.clock = freshClock(state.clockSettings, state.clock.revision + 1)
   clearHistory()
-  state.phase = 'setup'
+  state.openingSettings = opening ? { enabled: true, mirrorsPerPlayer: opening.mirrorsPerPlayer } : defaultOpeningSettings()
+  state.openingSeed = opening?.seed ?? null
+  if (opening) {
+    Object.assign(state.homes, opening.homes)
+    for (const [key, mirror] of opening.edges) state.edges.set(key, mirror)
+    for (const [key, mirror] of opening.diags) state.diags.set(key, mirror)
+    state.phase = 'play'
+    startTurnClock(Date.now())
+  } else state.phase = 'setup'
+}
+
+function checkOpening(opening: OpeningPosition | undefined, players: Color[], aiPlayers: Color[]) {
+  if (opening && !validOpening(opening, state.size, players, aiPlayers.some(c => players.includes(c)) || state.boundaryReflects)) throw new Error('预设局面与开局设置不符，或存在非法布局')
 }
 
 /** 进入单机模式 */
-export function startLocal(playerCount = 2, aiPlayers: Color[] = [], aiProviders: AiProviders = {}, aiProfileIds: AiProfileIds = {}) {
+export function startLocal(playerCount = 2, aiPlayers: Color[] = [], aiProviders: AiProviders = {}, aiProfileIds: AiProfileIds = {}, opening?: OpeningPosition) {
+  checkOpening(opening, seatColors(playerCount), aiPlayers)
   state.mode = 'local'
   state.myColor = null
   state.roomCode = ''
@@ -297,12 +313,13 @@ export function startLocal(playerCount = 2, aiPlayers: Color[] = [], aiProviders
   setAiProviders(aiProviders)
   setAiProfileIds(aiProfileIds)
   state.sessionId = crypto.randomUUID()
-  resetBoard()
+  resetBoard(opening)
   pushSessionUrl()
 }
 
 /** 联机模式下所有人到齐，开始布置 */
-export function startOnline(myColor: Color, roomCode: string, players: Color[], aiPlayers: Color[] = [], aiProviders: AiProviders = {}, aiProfileIds: AiProfileIds = {}) {
+export function startOnline(myColor: Color, roomCode: string, players: Color[], aiPlayers: Color[] = [], aiProviders: AiProviders = {}, aiProfileIds: AiProfileIds = {}, opening?: OpeningPosition) {
+  checkOpening(opening, players, aiPlayers.filter(c => c !== players[0]))
   state.mode = 'online'
   state.myColor = myColor
   state.roomCode = roomCode
@@ -312,7 +329,7 @@ export function startOnline(myColor: Color, roomCode: string, players: Color[], 
   setAiProviders(aiProviders)
   setAiProfileIds(aiProfileIds)
   state.sessionId = crypto.randomUUID()
-  resetBoard()
+  resetBoard(opening)
   pushSessionUrl()
 }
 
@@ -342,6 +359,8 @@ export function toLobby() {
   state.laserAllowed = false
   state.allowUndo = false
   state.boundaryReflects = true
+  state.openingSettings = defaultOpeningSettings()
+  state.openingSeed = null
   state.clockSettings = defaultClockSettings()
   state.clock = freshClock(state.clockSettings, state.clock.revision + 1)
   state.timedOut = []
@@ -447,6 +466,8 @@ function validate(a: Action, local: boolean, ai = false): boolean {
   }
   if (a.kind === 'restart') {
     if (state.phase === 'lobby') return false
+    if (state.openingSettings.enabled !== Boolean(a.opening)) return false
+    if (a.opening && !validOpening(a.opening, state.size, state.players, state.boundaryReflects, state.openingSettings.mirrorsPerPlayer)) return false
     // 联机只有房主可以重新开始
     return state.mode !== 'online' || a.color === state.players[0]
   }
@@ -530,7 +551,7 @@ function applyAction(a: Action, at: number) {
   // 展示/撤回权限设置与棋钟同步不改变光学局面，不应打断正在进行的搜索。
   if (!['laser-setting', 'undo-setting', 'clock-setting'].includes(a.kind)) state.positionRevision++
   if (a.kind === 'restart') {
-    resetBoard()
+    resetBoard(a.opening)
     return
   }
   if (a.kind === 'ai-resume') {
@@ -740,6 +761,8 @@ export interface Snapshot {
   allowUndo?: boolean
   /** 老存档缺省为关闭，保留该局原来的边界规则 */
   boundaryReflects?: boolean
+  openingSettings?: OpeningSettings
+  openingSeed?: number | null
   clockSettings?: ClockSettings
   clock?: ClockSync
   timedOut?: Color[]
@@ -773,6 +796,8 @@ export function serialize(): Snapshot {
     laserAllowed: state.laserAllowed,
     allowUndo: state.allowUndo,
     boundaryReflects: state.boundaryReflects,
+    openingSettings: { ...state.openingSettings },
+    openingSeed: state.openingSeed,
     clockSettings: { ...state.clockSettings },
     clock: serializeClock(),
     timedOut: [...state.timedOut],
@@ -817,6 +842,8 @@ export function applySnapshot(s: Snapshot, preserveIdentity = false) {
   state.laserAllowed = s.laserAllowed
   state.allowUndo = s.allowUndo ?? false
   state.boundaryReflects = state.aiPlayers.length > 0 || (s.boundaryReflects ?? false)
+  state.openingSettings = normalizeOpeningSettings(s.openingSettings, s.size, state.players.length)
+  state.openingSeed = s.openingSeed ?? null
   state.clockSettings = s.clockSettings ? normalizeClockSettings(s.clockSettings) : { ...defaultClockSettings(), enabled: false }
   state.timedOut = [...(s.timedOut ?? [])]
   if (s.clock) applyClockSync(s.clock, true)

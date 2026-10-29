@@ -3,6 +3,7 @@
 // 其余消息（放置动作）在房间内广播。
 // 房号首位：1=Nostr P2P，2=MQTT P2P，3=WebSocket 中继（默认，不依赖 UDP）。
 import { reactive } from 'vue'
+import { defaultOpeningSettings, validOpening, type OpeningPosition } from './opening'
 import type { AiProfileIds, AiProviders } from './ai/providers'
 import { defaultRelayUrls as nostrRelayUrls, getRelaySockets as getRelaySocketsNostr, joinRoom as joinRoomNostr, type MessageAction, type Room } from 'trystero'
 import { seatColors, type Color } from './game'
@@ -82,7 +83,7 @@ type Msg =
   | { t: 'hello'; token: string; want: Color | null }
   | { t: 'welcome'; color: Color; players: number; joined: number; started: boolean; aiPlayers?: Color[]; aiProviders?: AiProviders; aiProfileIds?: AiProfileIds; aiBudgetMs?: number }
   | { t: 'room-info'; joined: number }
-  | { t: 'start'; players: number; settings?: { size: number; laserAllowed: boolean; allowUndo: boolean; boundaryReflects?: boolean; clockSettings?: ClockSettings; aiPlayers?: Color[]; aiProviders?: AiProviders; aiProfileIds?: AiProfileIds; aiBudgetMs?: number } }
+  | { t: 'start'; players: number; snapshot?: Snapshot; settings?: { size: number; laserAllowed: boolean; allowUndo: boolean; boundaryReflects?: boolean; clockSettings?: ClockSettings; aiPlayers?: Color[]; aiProviders?: AiProviders; aiProfileIds?: AiProfileIds; aiBudgetMs?: number } }
   | { t: 'act'; act: Action; origin?: string; clock?: ClockSync }
   | { t: 'clock'; clock: ClockSync }
   | { t: 'sync'; snap: Snapshot }
@@ -154,6 +155,7 @@ let relayRoom: RelayRoom | null = null
 let action: MessageAction<any> | null = null
 let isHost = false
 let started = false
+let preparedOpening: OpeningPosition | undefined
 let token = ''
 let wantColor: Color | null = null
 /** 房主：token → 座位色 */
@@ -245,8 +247,8 @@ function hostStartIfReady(): boolean {
   if (!isHost || started || connected.size + state.aiPlayers.length !== state.players.length) return false
   started = true
   const aiPlayers = [...state.aiPlayers]
-  startOnline(state.myColor!, state.roomCode, state.players, aiPlayers, state.aiProviders, state.aiProfileIds)
-  send({ t: 'start', players: state.players.length, settings: {
+  startOnline(state.myColor!, state.roomCode, state.players, aiPlayers, state.aiProviders, state.aiProfileIds, preparedOpening)
+  send({ t: 'start', players: state.players.length, snapshot: preparedOpening ? serialize() : undefined, settings: {
     size: state.size, laserAllowed: state.laserAllowed, allowUndo: state.allowUndo,
     boundaryReflects: state.boundaryReflects, clockSettings: { ...state.clockSettings },
     aiPlayers, aiProviders: { ...state.aiProviders }, aiProfileIds: { ...state.aiProfileIds }, aiBudgetMs: state.aiBudgetMs,
@@ -355,7 +357,7 @@ function handle(msg: Msg, peerId: string) {
       if (relayRoom && !isHost && inGame()) state.peerLeft = msg.joined < state.players.length
       break
     case 'start':
-      if (!isHost && !inGame()) {
+      if (!isHost && !inGame() && peerId === hostPeerId) {
         state.peerLeft = false
         state.players = seatColors(msg.players)
         if (msg.settings) {
@@ -367,6 +369,7 @@ function handle(msg: Msg, peerId: string) {
         state.clockSettings = msg.settings?.clockSettings ?? { ...defaultClockSettings(), enabled: false }
         state.aiBudgetMs = msg.settings?.aiBudgetMs ?? 10000
         startOnline(state.myColor!, state.roomCode, state.players, msg.settings?.aiPlayers ?? [], msg.settings?.aiProviders, msg.settings?.aiProfileIds)
+        if (msg.snapshot) applySnapshot(msg.snapshot, true)
       }
       break
     case 'act':
@@ -477,8 +480,14 @@ function waitWelcome(): Promise<void> {
 }
 
 /** 创建房间，返回房间号（本方坐 0 号位）；signaling 决定信令通道并编入房号首位 */
-export async function netCreate(playerCount: number, signaling: Signaling = 'relay', aiPlayers: Color[] = [], aiProviders: AiProviders = {}, aiProfileIds: AiProfileIds = {}): Promise<string> {
+export async function netCreate(playerCount: number, signaling: Signaling = 'relay', aiPlayers: Color[] = [], aiProviders: AiProviders = {}, aiProfileIds: AiProfileIds = {}, opening?: OpeningPosition): Promise<string> {
+  if (opening && !validOpening(opening, state.size, seatColors(playerCount), aiPlayers.some(c => c !== 'blue' && seatColors(playerCount).includes(c)) || state.boundaryReflects)) {
+    throw new Error('预设局面与房间设置不符')
+  }
   netClose()
+  preparedOpening = opening
+  state.openingSettings = opening ? { enabled: true, mirrorsPerPlayer: opening.mirrorsPerPlayer } : defaultOpeningSettings()
+  state.openingSeed = opening?.seed ?? null
   isHost = true
   started = false
   token = genToken() // 每开一局新房间就用新身份，杜绝与本地历史档案撞 token
@@ -553,6 +562,7 @@ export async function netRejoin(code: string, color: Color, playerCount: number)
 }
 
 export function netClose() {
+  preparedOpening = undefined
   if (inGame()) state.peerLeft = true
   clearHello()
   if (relayTimer) clearInterval(relayTimer)

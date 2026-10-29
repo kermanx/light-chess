@@ -14,6 +14,7 @@ import { aiTest, leaveAiTestMode, startAiTestGame } from '../ai/test-session'
 import type { ClockSettings as ClockConfig } from '../clock'
 import { aiStatus, aiTurnColor, cancelAi, retryAi } from '../ai/controller'
 import { netClose } from '../net'
+import { prepareOpening, openingProgressLabel } from '../prepare-opening'
 import {
   edgeMid,
   edgeOf,
@@ -336,13 +337,32 @@ const edgeHitEnabled = computed(() => !(state.phase === 'setup' && !pendingHome.
 /** 本机是否为房主侧（单机视为房主）：决定能否重新开始 */
 const isHostSide = computed(() => state.mode === 'local' || state.myColor === hostColor.value)
 
-function restart() {
+const generatingOpening = ref(false)
+const openingProgress = ref('')
+const openingError = ref('')
+let openingAbort: AbortController | undefined
+async function restart() {
+  if (generatingOpening.value) return
   pendingHome.value = null
   if (aiTest.active) { startAiTestGame(); return }
-  dispatch({ kind: 'restart', color: state.mode === 'online' ? state.myColor! : state.players[0] })
+  openingError.value = ''
+  openingAbort = new AbortController()
+  try {
+    if (state.openingSettings.enabled) {
+      cancelAi()
+      generatingOpening.value = true
+      openingProgress.value = '正在生成并校验新局面…'
+    }
+    const opening = await prepareOpening(state.openingSettings, state.size, state.players, state.boundaryReflects,
+      openingAbort.signal, status => { openingProgress.value = openingProgressLabel(status) })
+    openingAbort.signal.throwIfAborted()
+    dispatch({ kind: 'restart', color: state.mode === 'online' ? state.myColor! : state.players[0], opening })
+  } catch (error) { openingError.value = error instanceof Error ? error.message : String(error) }
+  finally { generatingOpening.value = false; openingProgress.value = '' }
 }
 
 function leaveGame() {
+  openingAbort?.abort()
   if (aiTest.active) { leaveAiTestMode(); return }
   netClose()
   toLobby()
@@ -390,6 +410,7 @@ onMounted(() => {
   window.addEventListener('blur', onBlur)
 })
 onUnmounted(() => {
+  openingAbort?.abort()
   window.removeEventListener('keydown', onKey)
   window.removeEventListener('keyup', onKey)
   window.removeEventListener('blur', onBlur)
@@ -846,6 +867,7 @@ const statusText = computed(() => {
           × {{ state.size }}
         </label>
         <span v-else class="room">棋盘 {{ state.size }}×{{ state.size }}</span>
+        <span v-if="state.openingSettings.enabled" class="room">预设开局 · 每方 {{ state.openingSettings.mirrorsPerPlayer }} 面额外镜子</span>
         <span v-if="state.mode === 'online'" class="room">
           房间 {{ state.roomCode }} · 你执{{ name(state.myColor!) }}
         </span>
@@ -892,8 +914,10 @@ const statusText = computed(() => {
       <span v-else class="laser-tag">鼠标悬停在「家」上可查看光路</span>
       <div v-if="undoAvailable || isHostSide" class="btn-row">
         <button v-if="undoAvailable" class="btn-plain" :disabled="!canUndoNow" @click="undo">撤回一步</button>
-        <button v-if="isHostSide && !aiTest.active" class="btn-plain" @click="restart">重新开始</button>
+        <button v-if="isHostSide && !aiTest.active" class="btn-plain" :disabled="generatingOpening" @click="restart">{{ generatingOpening ? '正在生成…' : '重新开始' }}</button>
       </div>
+      <p v-if="openingProgress" role="status">{{ openingProgress }}</p>
+      <p v-if="openingError" class="ai-error" role="alert">{{ openingError }}</p>
       <button class="btn-plain" @click="leaveGame">回到大厅</button>
     </div>
 
@@ -902,13 +926,14 @@ const statusText = computed(() => {
       <div class="help-body">
         <p><b>目标</b>：让自家的激光经镜面反射，打到别人的家。</p>
         <p v-if="aiTest.active"><b>开局</b>：基地已自动布置，蓝方先手；直接放置镜子开始测试。</p>
+        <p v-else-if="state.openingSettings.enabled"><b>开局</b>：基地与镜子已随机生成，各方数量相同，新生成局面会排除直接命中及一手无解攻击；蓝方先手，直接继续放镜。「重新开始」会按相同数量生成新局面。</p>
         <p v-else><b>开局</b>：各选一个格子当家并指定开口，其余 3 条边自动放上你的镜子。家向四个方向发光，光线也能穿过自己的家镜。</p>
         <p><b>放镜</b>：轮流每回合放一面，不可移除。点网格边放边镜；左键格子放「/」、右键放「\」斜镜，Shift 反向。对方基地的开口也可放镜，仍须遵守禁围规则。</p>
         <p><b>反射</b>：自己的镜子对自己半反射（穿过+反射），别人的镜子只反射。</p>
         <p v-if="aiTest.active"><b>边界</b>：测试模式中，边界始终对所有光线全反射。</p>
         <p v-else><b>边界</b>：开启「边界反射」时，边界对所有光线全反射；关闭时出界光线终止。开局后不可更改。</p>
         <p><b>限制</b>：每种颜色的边镜、斜镜分别连同边框，不能把仍在场的基地彼此隔开；所有基地仍在同一区域时允许。</p>
-        <p v-if="!aiTest.active"><b>布置</b>：允许基地同排或同列，只禁止先手在开局立即命中基地的布置；后续回合的光路威胁仍可通过放镜化解。</p>
+        <p v-if="!aiTest.active && !state.openingSettings.enabled"><b>布置</b>：允许基地同排或同列，只禁止先手在开局立即命中基地的布置；后续回合的光路威胁仍可通过放镜化解。</p>
         <p><b>结算</b>：轮到谁就在其回合开头结算其激光；被打中出局（✕）。双人打中即胜，多人活到最后获胜。</p>
         <p v-if="!aiTest.active"><b>棋钟</b>：只扣当前行动者的时间，合法放镜后加秒；超时出局，多人局继续。掉线等待重连时暂停。</p>
       </div>
