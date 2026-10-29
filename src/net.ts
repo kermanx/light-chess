@@ -3,6 +3,7 @@
 // 其余消息（放置动作）在房间内广播。
 // 房号首位：1=Nostr P2P，2=MQTT P2P，3=WebSocket 中继（默认，不依赖 UDP）。
 import { reactive } from 'vue'
+import type { AiProfileIds, AiProviders } from './ai/providers'
 import { defaultRelayUrls as nostrRelayUrls, getRelaySockets as getRelaySocketsNostr, joinRoom as joinRoomNostr, type MessageAction, type Room } from 'trystero'
 import { seatColors, type Color } from './game'
 import { defaultClockSettings, type ClockSettings, type ClockSync } from './clock'
@@ -15,6 +16,8 @@ import {
   serializeClock,
   setClockSender,
   setAiPlayers,
+  setAiProviders,
+  setAiProfileIds,
   setSender,
   startOnline,
   state,
@@ -77,9 +80,9 @@ const genToken = () =>
 
 type Msg =
   | { t: 'hello'; token: string; want: Color | null }
-  | { t: 'welcome'; color: Color; players: number; joined: number; started: boolean; aiPlayers?: Color[]; aiBudgetMs?: number }
+  | { t: 'welcome'; color: Color; players: number; joined: number; started: boolean; aiPlayers?: Color[]; aiProviders?: AiProviders; aiProfileIds?: AiProfileIds; aiBudgetMs?: number }
   | { t: 'room-info'; joined: number }
-  | { t: 'start'; players: number; settings?: { size: number; laserAllowed: boolean; allowUndo: boolean; boundaryReflects?: boolean; clockSettings?: ClockSettings; aiPlayers?: Color[]; aiBudgetMs?: number } }
+  | { t: 'start'; players: number; settings?: { size: number; laserAllowed: boolean; allowUndo: boolean; boundaryReflects?: boolean; clockSettings?: ClockSettings; aiPlayers?: Color[]; aiProviders?: AiProviders; aiProfileIds?: AiProfileIds; aiBudgetMs?: number } }
   | { t: 'act'; act: Action; origin?: string; clock?: ClockSync }
   | { t: 'clock'; clock: ClockSync }
   | { t: 'sync'; snap: Snapshot }
@@ -94,6 +97,8 @@ interface NetRecord {
   /** 仅房主：token → 座位色（房主刷新后仍能认出重连的老玩家） */
   seats?: Record<string, Color>
   aiPlayers?: Color[]
+  aiProviders?: AiProviders
+  aiProfileIds?: AiProfileIds
   aiBudgetMs?: number
 }
 
@@ -208,6 +213,7 @@ const send = (msg: Msg, target?: string) => {
 }
 
 const sendAct = (act: Action) => {
+  if (act.kind === 'ai-provider-setting' || act.kind === 'ai-profile-setting') persistSeats()
   // 中继模式由房主转发动作：开局只需所有人连上房主，不必等待客人两两发现。
   // origin 保留给旧版中继客户端去重；新版客人等房主确认才应用动作。
   if (relayRoom || state.clockSettings.enabled || state.aiPlayers.length > 0) {
@@ -218,7 +224,7 @@ const sendAct = (act: Action) => {
 
 function persistSeats() {
   const rec = loadNet()
-  if (rec?.host) saveNet({ ...rec, seats: Object.fromEntries(seats), aiPlayers: [...state.aiPlayers], aiBudgetMs: state.aiBudgetMs })
+  if (rec?.host) saveNet({ ...rec, seats: Object.fromEntries(seats), aiPlayers: [...state.aiPlayers], aiProviders: { ...state.aiProviders }, aiProfileIds: { ...state.aiProfileIds }, aiBudgetMs: state.aiBudgetMs })
 }
 
 function clearHello() {
@@ -239,11 +245,11 @@ function hostStartIfReady(): boolean {
   if (!isHost || started || connected.size + state.aiPlayers.length !== state.players.length) return false
   started = true
   const aiPlayers = [...state.aiPlayers]
-  startOnline(state.myColor!, state.roomCode, state.players, aiPlayers)
+  startOnline(state.myColor!, state.roomCode, state.players, aiPlayers, state.aiProviders, state.aiProfileIds)
   send({ t: 'start', players: state.players.length, settings: {
     size: state.size, laserAllowed: state.laserAllowed, allowUndo: state.allowUndo,
     boundaryReflects: state.boundaryReflects, clockSettings: { ...state.clockSettings },
-    aiPlayers, aiBudgetMs: state.aiBudgetMs,
+    aiPlayers, aiProviders: { ...state.aiProviders }, aiProfileIds: { ...state.aiProfileIds }, aiBudgetMs: state.aiBudgetMs,
   } })
   return true
 }
@@ -276,7 +282,7 @@ function hostOnHello(msg: Extract<Msg, { t: 'hello' }>, peerId: string) {
   connected.add(msg.token)
   state.roomJoined = connected.size + state.aiPlayers.length
   send(
-    { t: 'welcome', color, players: state.players.length, joined: connected.size + state.aiPlayers.length, started, aiPlayers: state.aiPlayers, aiBudgetMs: state.aiBudgetMs },
+    { t: 'welcome', color, players: state.players.length, joined: connected.size + state.aiPlayers.length, started, aiPlayers: state.aiPlayers, aiProviders: { ...state.aiProviders }, aiProfileIds: { ...state.aiProfileIds }, aiBudgetMs: state.aiBudgetMs },
     peerId,
   )
   send({ t: 'room-info', joined: connected.size + state.aiPlayers.length })
@@ -324,6 +330,8 @@ function onWelcome(msg: Extract<Msg, { t: 'welcome' }>, peerId: string) {
   state.myColor = msg.color
   state.players = seatColors(msg.players)
   setAiPlayers(msg.aiPlayers ?? [])
+  setAiProviders(msg.aiProviders)
+  setAiProfileIds(msg.aiProfileIds)
   state.aiBudgetMs = msg.aiBudgetMs ?? 10000
   state.roomJoined = msg.joined
   saveNet({ code: state.roomCode, token, host: false, players: msg.players })
@@ -358,7 +366,7 @@ function handle(msg: Msg, peerId: string) {
         state.boundaryReflects = msg.settings?.boundaryReflects ?? false
         state.clockSettings = msg.settings?.clockSettings ?? { ...defaultClockSettings(), enabled: false }
         state.aiBudgetMs = msg.settings?.aiBudgetMs ?? 10000
-        startOnline(state.myColor!, state.roomCode, state.players, msg.settings?.aiPlayers ?? [])
+        startOnline(state.myColor!, state.roomCode, state.players, msg.settings?.aiPlayers ?? [], msg.settings?.aiProviders, msg.settings?.aiProfileIds)
       }
       break
     case 'act':
@@ -469,7 +477,7 @@ function waitWelcome(): Promise<void> {
 }
 
 /** 创建房间，返回房间号（本方坐 0 号位）；signaling 决定信令通道并编入房号首位 */
-export async function netCreate(playerCount: number, signaling: Signaling = 'relay', aiPlayers: Color[] = []): Promise<string> {
+export async function netCreate(playerCount: number, signaling: Signaling = 'relay', aiPlayers: Color[] = [], aiProviders: AiProviders = {}, aiProfileIds: AiProfileIds = {}): Promise<string> {
   netClose()
   isHost = true
   started = false
@@ -479,13 +487,15 @@ export async function netCreate(playerCount: number, signaling: Signaling = 'rel
   state.myColor = state.players[0]
   // 建房时尚在大厅；房主座位始终保留给真人。
   setAiPlayers(aiPlayers.filter(c => c !== state.players[0]))
+  setAiProviders(aiProviders)
+  setAiProfileIds(aiProfileIds)
   state.roomCode = code
   state.roomJoined = 1 + state.aiPlayers.length
   state.peerLeft = false
   seats = new Map([[token, state.myColor]])
   connected = new Set([token])
   peerByToken = new Map()
-  saveNet({ code, token, host: true, players: playerCount, seats: Object.fromEntries(seats), aiPlayers: state.aiPlayers, aiBudgetMs: state.aiBudgetMs })
+  saveNet({ code, token, host: true, players: playerCount, seats: Object.fromEntries(seats), aiPlayers: state.aiPlayers, aiProviders: { ...state.aiProviders }, aiProfileIds: { ...state.aiProfileIds }, aiBudgetMs: state.aiBudgetMs })
   await openRoom(code)
   hostStartIfReady()
   return code
@@ -523,6 +533,8 @@ export async function netRejoin(code: string, color: Color, playerCount: number)
     isHost = true
     state.players = seatColors(playerCount)
     setAiPlayers(rec.aiPlayers ?? state.aiPlayers)
+    setAiProviders(rec.aiProviders ?? state.aiProviders)
+    setAiProfileIds(rec.aiProfileIds ?? state.aiProfileIds)
     state.aiBudgetMs = rec.aiBudgetMs ?? state.aiBudgetMs
     seats = new Map(Object.entries(rec.seats ?? {}))
     seats.set(token, color)

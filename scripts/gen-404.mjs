@@ -6,9 +6,9 @@ import { readFileSync, writeFileSync } from 'node:fs'
 
 const html = readFileSync('dist/index.html', 'utf8')
 const inject =
-  '<script>document.write(\'<base href="\' + location.pathname.replace(/\\/(?:s\\/[^/]+|ai-test(?:\\/[a-f0-9-]{36})?)\\/?$/, \'/\') + \'"/\')</script>'
+  '<script>document.write(\'<base href="\' + location.pathname.replace(/\\/(?:s\\/[^/]+|ai-test(?:\\/[a-f0-9-]{36})?|replays|replay\\/[a-f0-9-]{36})\\/?$/, \'/\') + \'"/\')</script>'
 if (!html.includes('<head>')) throw new Error('dist/index.html 结构异常：找不到 <head>')
 const entry = html.includes(inject) ? html : html.replace('<head>', `<head>\n    ${inject}`)
 writeFileSync('dist/index.html', entry)
 writeFileSync('dist/404.html', entry)
-console.log('dist/index.html、404.html 已生成（对局与 AI 测试深路径 SPA 回退）')
+console.log('dist/index.html、404.html 已生成（对局、AI 测试与回放深路径 SPA 回退）')

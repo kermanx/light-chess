@@ -3,11 +3,14 @@ import { computed } from 'vue'
 import { state } from './store'
 import Game from './views/Game.vue'
 import Lobby from './views/Lobby.vue'
+import Replay from './views/Replay.vue'
+import { replayRoute } from './replay/navigation'
 
 const inLobby = computed(() => state.phase === 'lobby')
 </script>
 
 <template>
-  <Lobby v-if="inLobby" />
+  <Replay v-if="replayRoute" :game-id="replayRoute.id" />
+  <Lobby v-else-if="inLobby" />
   <Game v-else />
 </template>

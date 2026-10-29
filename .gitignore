@@ -29,3 +29,8 @@ src/ai/engine.wasm
 
 # Local AI playtest archives (kept across builds and restarts)
 /debug/ai-games/
+/debug/dsh-games/
+
+# Generated DSH browser image and staging package
+/.dsh-build/
+/public/dsh/

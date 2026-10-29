@@ -1,10 +1,13 @@
 import { createApp } from 'vue'
+import 'virtual:uno.css'
 import './style.css'
+import { startDshTrajectoryCapture } from './ai/trajectory'
 import App from './App.vue'
 import { startAiController } from './ai/controller'
 import { enterAiTestMode, exitAiTestMode, isAiTestRoute } from './ai/test-session'
 import { netClose, netRejoin } from './net'
-import { applySnapshot, broadcastClock, loadSave, persistGame, state, tickClock, toLobby, type Snapshot } from './store'
+import { applySnapshot, broadcastClock, loadSave, persistGame, setGamePersistenceEnabled, state, tickClock, toLobby, type Snapshot } from './store'
+import { replayRoute, syncReplayRoute } from './replay/navigation'
 
 /** 当前 URL 中的对局会话 id（/s/<id>），不在对局路径下为 null */
 const sessionMatch = () => location.pathname.match(/\/s\/([^/]+?)\/?$/)?.[1] ?? null
@@ -21,7 +24,9 @@ function restore(save: Snapshot) {
 
 // 刷新恢复：URL 的 /s/<id> 与存档 sessionId 对上才恢复（旧格式存档已被 loadSave 忽略）
 async function boot() {
-  if (isAiTestRoute()) await enterAiTestMode()
+  startDshTrajectoryCapture()
+  if (replayRoute.value) setGamePersistenceEnabled(false)
+  else if (isAiTestRoute()) await enterAiTestMode()
   else {
     const save = loadSave()
     const sid = sessionMatch()
@@ -50,6 +55,15 @@ addEventListener('pagehide', () => {
 
 // 浏览器后退/前进：回大厅（存档保留）↔ 恢复对局
 addEventListener('popstate', async () => {
+  syncReplayRoute()
+  if (replayRoute.value) {
+    netClose()
+    exitAiTestMode()
+    setGamePersistenceEnabled(false)
+    toLobby()
+    return
+  }
+  setGamePersistenceEnabled(true)
   if (isAiTestRoute()) {
     netClose()
     await enterAiTestMode()

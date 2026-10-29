@@ -1,13 +1,18 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { defaultDshProfileId } from '../ai/config'
+import { defineAsyncComponent, computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import ClockSettings from '../components/ClockSettings.vue'
 import ChessClock from '../components/ChessClock.vue'
 import VictoryBeam from '../components/VictoryBeam.vue'
 import GameResult from '../components/GameResult.vue'
 import AiTestPanel from '../components/AiTestPanel.vue'
+import DshSettings from '../components/DshSettings.vue'
+import DshProfileSelect from '../components/DshProfileSelect.vue'
+import { loadTrajectoryRuns, trajectoryRuns } from '../ai/trajectory'
+import { aiProviderName, type AiProvider } from '../ai/providers'
 import { aiTest, leaveAiTestMode, startAiTestGame } from '../ai/test-session'
 import type { ClockSettings as ClockConfig } from '../clock'
-import { aiStatus, aiTurnColor, retryAi } from '../ai/controller'
+import { aiStatus, aiTurnColor, cancelAi, retryAi } from '../ai/controller'
 import { netClose } from '../net'
 import {
   edgeMid,
@@ -21,6 +26,7 @@ import {
 } from '../game'
 import {
   aiAuthority,
+  aiProviderFor,
   board,
   isAiPlayer,
   toLobby,
@@ -51,6 +57,18 @@ const u = (v: number) => PAD + v * S
 const COLORS = Object.fromEntries(PALETTE.map((p) => [p.id, p.hex])) as Record<Color, string>
 const name = (c: Color) => `${PALETTE.find((p) => p.id === c)?.name ?? c}方`
 const thinkingTime = (ms: number) => ms < 1 ? '不足 1 毫秒' : ms < 1000 ? `${Math.round(ms)} 毫秒` : `${(ms / 1000).toFixed(1)} 秒`
+const hasDsh = computed(() => state.aiPlayers.some(c => aiProviderFor(c) === 'dsh'))
+const DshTrajectoryPanel = defineAsyncComponent(() => import('../components/DshTrajectoryPanel.vue'))
+const trajectoryOpen = ref(false)
+const hasTrajectory = computed(() => hasDsh.value || trajectoryRuns.value.some(r => r.gameId === state.sessionId))
+watch(hasDsh, value => { if (value) trajectoryOpen.value = true }, { immediate: true })
+watch(() => state.sessionId, id => { void loadTrajectoryRuns(id).catch(error => console.warn('无法读取 DSH 轨迹', error)) }, { immediate: true })
+function changeAiProvider(color: Color, event: Event) {
+  dispatch({ kind: 'ai-provider-setting', color: state.players[0], target: color, provider: (event.target as HTMLSelectElement).value as AiProvider })
+  if (aiProviderFor(color) === 'dsh' && !state.aiProfileIds[color] && defaultDshProfileId()) {
+    dispatch({ kind: 'ai-profile-setting', color: state.players[0], target: color, profileId: defaultDshProfileId() })
+  }
+}
 
 const hoverEdge = ref<string | null>(null)
 const hoverCell = ref<Pt | null>(null)
@@ -536,7 +554,7 @@ const statusText = computed(() => {
 </script>
 
 <template>
-  <div class="game">
+  <div class="game" :class="{ 'with-trajectory': hasTrajectory && trajectoryOpen }">
     <div class="paper board-wrap">
       <svg ref="svgEl" class="board-svg" :viewBox="`0 0 ${SIZE} ${SIZE}`">
         <!-- 格子点击层 -->
@@ -801,6 +819,10 @@ const statusText = computed(() => {
       <div v-if="state.aiPaused && aiTurnColor && aiAuthority()" class="note">
         <button class="btn-plain" @click="retryAi">恢复 AI 思考</button>
       </div>
+      <div v-if="aiStatus.status === 'thinking' && aiTurnColor && aiAuthority()" class="note ai-progress">
+        <p v-if="aiStatus.progress" role="status" aria-live="polite">{{ aiStatus.progress }}</p>
+        <button class="btn-plain" @click="cancelAi">取消本次思考</button>
+      </div>
       <div v-if="lastAiAnalysis" class="note ai-analysis" aria-label="AI 上一步说明">
         <p class="ai-analysis-label">上一步 · {{ name(lastAiAnalysis.color) }} AI <span>思考 {{ thinkingTime(lastAiAnalysis.elapsedMs) }}</span></p>
         <p v-if="lastAiAnalysis.reason" class="ai-analysis-reason">{{ lastAiAnalysis.reason }}</p>
@@ -827,7 +849,15 @@ const statusText = computed(() => {
         <span v-if="state.mode === 'online'" class="room">
           房间 {{ state.roomCode }} · 你执{{ name(state.myColor!) }}
         </span>
-        <span v-for="c in state.aiPlayers" :key="`ai-${c}`" class="room" :style="{ color: COLORS[c] }">{{ name(c) }} AI · 每步最多 {{ state.aiBudgetMs / 1000 }} 秒</span>
+        <div v-for="c in state.aiPlayers" :key="`ai-${c}`" class="room ai-provider-control" :style="{ color: COLORS[c] }">
+          {{ name(c) }} AI
+          <select v-if="aiAuthority()" :value="aiProviderFor(c)" :aria-label="`${name(c)} AI 实现`" @change="changeAiProvider(c, $event)">
+            <option value="wasm">Rust / WASM</option><option value="dsh">DSH</option>
+          </select>
+          <span v-else>{{ aiProviderName(aiProviderFor(c)) }}</span>
+          <span v-if="aiProviderFor(c) === 'wasm'">每步最多 {{ state.aiBudgetMs / 1000 }} 秒</span>
+          <DshProfileSelect v-if="aiProviderFor(c) === 'dsh' && aiAuthority()" :model-value="state.aiProfileIds[c]" :label="`${name(c)} LLM 配置`" @update:model-value="dispatch({ kind: 'ai-profile-setting', color: state.players[0], target: c, profileId: $event })" />
+        </div>
         <span
           v-for="c in state.players.filter((c) => state.dead.includes(c))"
           :key="`dead-${c}`"
@@ -837,6 +867,7 @@ const statusText = computed(() => {
           ✕ {{ name(c) }}{{ state.timedOut.includes(c) ? '超时出局' : '已出局' }}
         </span>
       </div>
+      <DshSettings v-if="!aiTest.active && hasDsh && aiAuthority()" class="note" />
 
       <div class="ctl-note note">
       <ClockSettings v-if="!aiTest.active" :settings="state.clockSettings" :disabled="state.phase !== 'setup' || !isHostSide" @change="changeClock" />
@@ -883,10 +914,12 @@ const statusText = computed(() => {
       </div>
     </div>
     </aside>
+    <DshTrajectoryPanel v-if="hasTrajectory" v-model:open="trajectoryOpen" :game-id="state.sessionId" />
   </div>
 </template>
 
 <style scoped>
+.ai-provider-control .llm-select { flex-basis: 100%; }
 .ai-analysis-label { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 5px 12px; margin: 0; font-size: 13px; }
 .ai-analysis-label span { color: #8a7f68; }
 .ai-analysis-reason { margin: 10px 0 0; font-size: 14px; line-height: 1.6; }
@@ -898,6 +931,12 @@ const statusText = computed(() => {
   justify-content: center;
   gap: 26px;
   width: 100%;
+}
+.game { --trajectory-width: min(56vw, 880px); }
+@media (min-width: 981px) {
+  .game.with-trajectory { width: calc(100% - var(--trajectory-width)); margin-right: var(--trajectory-width); flex-direction: column; align-items: center; }
+  .game.with-trajectory .board-wrap { width: min(100%, calc(100vh - 44px)); }
+  .game.with-trajectory .side { width: 100%; max-height: none; }
 }
 /* 右侧便签栏 */
 .side {
@@ -1152,6 +1191,9 @@ const statusText = computed(() => {
 .help-note p b {
   color: #6b5f47;
 }
+.ai-provider-control { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
+.ai-provider-control select { max-width: 100%; border: 1px solid #9e9278; border-radius: 5px; padding: 3px 5px; font: inherit; color: inherit; background: #fffaf0; }
+.ai-progress p { font-size: 12px; overflow-wrap: anywhere; }
 /* 窄屏回退为上下布局 */
 @media (max-width: 980px) {
   .game {

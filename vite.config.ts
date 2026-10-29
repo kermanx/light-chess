@@ -1,8 +1,10 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
+import UnoCSS from 'unocss/vite'
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { aiTestRecorder } from './scripts/ai-test-recorder.ts'
+import { arenaReplays } from './scripts/arena-plugin.ts'
 
 const digest = (files: string[]) => {
   const hash = createHash('sha256')
@@ -22,7 +24,7 @@ export default defineConfig({
     // CI still starts from a clean checkout/output directory.
     emptyOutDir: false,
   },
-  plugins: [vue(), aiTestRecorder()],
+  plugins: [vue(), UnoCSS(), aiTestRecorder(), arenaReplays()],
   define: {
     __AI_TEST_BUILD__: JSON.stringify({
       builtAt: new Date().toISOString(),

@@ -1,5 +1,6 @@
 import { computed, reactive, ref, watch } from 'vue'
 import { toAiMoveAnalysis, type AiMoveAnalysis } from './ai/protocol'
+import type { AiProfileIds, AiProvider, AiProviders } from './ai/providers'
 import { defaultClockSettings, freshClock, normalizeClockSettings, timeLeft, type ClockSettings, type ClockState, type ClockSync } from './clock'
 import {
   createsEnclosure,
@@ -54,6 +55,9 @@ export type Action =
   | { kind: 'undo-setting'; color: Color; allow: boolean; floor?: number }
   | { kind: 'undo'; color: Color; frame: UndoFrame }
   | { kind: 'ai-resume'; color: Color }
+  | { kind: 'ai-pause'; color: Color }
+  | { kind: 'ai-provider-setting'; color: Color; target: Color; provider: AiProvider }
+  | { kind: 'ai-profile-setting'; color: Color; target: Color; profileId: string }
   | { kind: 'board-size'; color: Color; size: number }
   | { kind: 'boundary-setting'; color: Color; enabled: boolean }
   | { kind: 'clock-setting'; color: Color; settings: ClockSettings }
@@ -73,6 +77,8 @@ export const state = reactive({
   players: seatColors(2) as Color[],
   /** AI 席位不占用联机连接；在线时统一由房主运行。 */
   aiPlayers: [] as Color[],
+  aiProviders: {} as AiProviders,
+  aiProfileIds: {} as AiProfileIds,
   aiBudgetMs: 10_000,
   /** 撤回后暂停 AI，避免刚撤掉的一步被立即重下。 */
   aiPaused: false,
@@ -120,6 +126,18 @@ export const board: BoardState = {
 /** 房主（0 号座位） */
 export const hostColor = computed<Color>(() => state.players[0])
 export const isAiPlayer = (color: Color) => state.aiPlayers.includes(color)
+export const aiProviderFor = (color: Color): AiProvider => state.aiProviders[color] === 'dsh' ? 'dsh' : 'wasm'
+export function setAiProviders(providers: AiProviders = {}) {
+  state.aiProviders = Object.fromEntries(state.aiPlayers.map(color => [color, providers?.[color] === 'dsh' ? 'dsh' : 'wasm']))
+}
+export function setAiProfileIds(ids: AiProfileIds = {}) {
+  state.aiProfileIds = Object.fromEntries(state.aiPlayers.flatMap(color => {
+    // Legacy DSH games used the migrated default connection. Bind that exact
+    // ID so deleting it cannot silently switch an old game to another model.
+    const id = ids?.[color] ?? (aiProviderFor(color) === 'dsh' ? 'default' : undefined)
+    return typeof id === 'string' && id.length > 0 && id.length <= 100 ? [[color, id]] : []
+  }))
+}
 /** Explain only the last actual AI move; stale/legacy/mismatched records stay hidden. */
 export const lastAiAnalysis = computed(() => {
   const move = state.lastMove
@@ -269,26 +287,30 @@ function resetBoard() {
 }
 
 /** 进入单机模式 */
-export function startLocal(playerCount = 2, aiPlayers: Color[] = []) {
+export function startLocal(playerCount = 2, aiPlayers: Color[] = [], aiProviders: AiProviders = {}, aiProfileIds: AiProfileIds = {}) {
   state.mode = 'local'
   state.myColor = null
   state.roomCode = ''
   state.peerLeft = false
   state.players = seatColors(playerCount)
   setAiPlayers(aiPlayers)
+  setAiProviders(aiProviders)
+  setAiProfileIds(aiProfileIds)
   state.sessionId = crypto.randomUUID()
   resetBoard()
   pushSessionUrl()
 }
 
 /** 联机模式下所有人到齐，开始布置 */
-export function startOnline(myColor: Color, roomCode: string, players: Color[], aiPlayers: Color[] = []) {
+export function startOnline(myColor: Color, roomCode: string, players: Color[], aiPlayers: Color[] = [], aiProviders: AiProviders = {}, aiProfileIds: AiProfileIds = {}) {
   state.mode = 'online'
   state.myColor = myColor
   state.roomCode = roomCode
   state.peerLeft = false
   state.players = players
   setAiPlayers(aiPlayers)
+  setAiProviders(aiProviders)
+  setAiProfileIds(aiProfileIds)
   state.sessionId = crypto.randomUUID()
   resetBoard()
   pushSessionUrl()
@@ -304,6 +326,8 @@ export function toLobby() {
   state.roomJoined = 0
   state.players = seatColors(2)
   state.aiPlayers = []
+  state.aiProviders = {}
+  state.aiProfileIds = {}
   state.aiPaused = false
   state.phase = 'lobby'
   for (const c of Object.keys(state.homes) as Color[]) delete state.homes[c]
@@ -430,8 +454,17 @@ function validate(a: Action, local: boolean, ai = false): boolean {
   if (local && !ai && state.mode === 'online' && a.color !== state.myColor) return false
   if (local && !ai && ['setup', 'diag', 'edge'].includes(a.kind) && isAiPlayer(a.color)) return false
   if (state.peerLeft) return false
-  if (a.kind === 'ai-resume') {
-    return state.phase === 'play' && state.aiPaused && state.aiPlayers.length > 0 &&
+  if (a.kind === 'ai-resume' || a.kind === 'ai-pause') {
+    return (state.phase === 'play' || state.phase === 'setup') &&
+      (a.kind === 'ai-resume' ? state.aiPaused : !state.aiPaused) && state.aiPlayers.length > 0 &&
+      (state.mode === 'local' || a.color === state.players[0])
+  }
+  if (a.kind === 'ai-profile-setting') {
+    return state.phase !== 'lobby' && isAiPlayer(a.target) && typeof a.profileId === 'string' &&
+      a.profileId.length > 0 && a.profileId.length <= 100 && (state.mode === 'local' || a.color === state.players[0])
+  }
+  if (a.kind === 'ai-provider-setting') {
+    return state.phase !== 'lobby' && isAiPlayer(a.target) && ['wasm', 'dsh'].includes(a.provider) &&
       (state.mode === 'local' || a.color === state.players[0])
   }
   if (a.kind === 'laser-setting' || a.kind === 'undo-setting') {
@@ -505,6 +538,20 @@ function applyAction(a: Action, at: number) {
     // 继续原回合，不新增回合、不加秒，也不重置正在计时的真人回合起点。
     if (state.clock.runningSince === null && shouldRunClock()) state.clock.runningSince = at
     state.clock.revision++
+    return
+  }
+  if (a.kind === 'ai-pause') {
+    if (isAiPlayer(state.current)) holdClock(at)
+    state.aiPaused = true
+    state.clock.revision++
+    return
+  }
+  if (a.kind === 'ai-profile-setting') {
+    state.aiProfileIds[a.target] = a.profileId
+    return
+  }
+  if (a.kind === 'ai-provider-setting') {
+    state.aiProviders[a.target] = a.provider
     return
   }
   if (a.kind === 'laser-setting') {
@@ -618,7 +665,7 @@ export function setSender(fn: ((a: Action) => void) | null, deferLocal = false) 
 
 /** 本地操作入口：校验 → 应用 →（联机时）广播 */
 export function dispatch(a: Action) {
-  if ((a.kind === 'edge' || a.kind === 'diag' || a.kind === 'undo' || a.kind === 'ai-resume') && tickClock()) return
+  if ((a.kind === 'edge' || a.kind === 'diag' || a.kind === 'undo' || a.kind === 'ai-resume' || a.kind === 'ai-pause') && tickClock()) return
   if (!validate(a, true)) return
   // 中继客人的动作由房主确认后通过 applyRemote 应用，避免刷新/重连时局面分叉。
   if (state.mode === 'online' && (waitForHost || ((state.clockSettings.enabled || state.aiPlayers.length > 0) && !isClockAuthority()))) {
@@ -641,7 +688,7 @@ export function dispatchAi(a: Action): boolean {
 
 /** 远端操作入口 */
 export function applyRemote(a: Action, clock?: ClockSync) {
-  if (isClockAuthority() && (a.kind === 'edge' || a.kind === 'diag' || a.kind === 'undo' || a.kind === 'ai-resume') && tickClock()) return false
+  if (isClockAuthority() && (a.kind === 'edge' || a.kind === 'diag' || a.kind === 'undo' || a.kind === 'ai-resume' || a.kind === 'ai-pause') && tickClock()) return false
   if (!validate(a, false)) return false
   apply(a, clock?.at ?? Date.now())
   if (clock) applyClockSync(clock, true)
@@ -675,6 +722,8 @@ export interface Snapshot {
   /** 座位表；缺省视为双人 */
   players?: Color[]
   aiPlayers?: Color[]
+  aiProviders?: AiProviders
+  aiProfileIds?: AiProfileIds
   aiBudgetMs?: number
   aiPaused?: boolean
   phase: Phase
@@ -709,6 +758,8 @@ export function serialize(): Snapshot {
     roomCode: state.roomCode,
     players: [...state.players],
     aiPlayers: [...state.aiPlayers],
+    aiProviders: { ...state.aiProviders },
+    aiProfileIds: { ...state.aiProfileIds },
     aiBudgetMs: state.aiBudgetMs,
     aiPaused: state.aiPaused,
     phase: state.phase,
@@ -747,6 +798,8 @@ export function applySnapshot(s: Snapshot, preserveIdentity = false) {
   }
   state.players = s.players?.length ? s.players : seatColors(2)
   setAiPlayers(s.aiPlayers ?? [])
+  setAiProviders(s.aiProviders)
+  setAiProfileIds(s.aiProfileIds)
   state.aiBudgetMs = [3000, 10000, 30000].includes(s.aiBudgetMs ?? 0) ? s.aiBudgetMs! : 10000
   state.aiPaused = s.aiPaused ?? false
   state.phase = s.phase

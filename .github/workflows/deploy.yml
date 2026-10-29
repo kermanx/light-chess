@@ -45,6 +45,8 @@ jobs:
         run: node scripts/enclosure-check.mjs
       - name: Check victory animation and confirmation
         run: node scripts/victory-check.mjs
+      - name: Check portable game replays
+        run: node scripts/replay-check.mjs
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

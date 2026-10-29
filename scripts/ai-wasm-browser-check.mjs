@@ -80,7 +80,7 @@ try {
   await host.getByRole('button', { name: '回到大厅' }).click()
   await host.getByRole('button', { name: '创建房间', exact: false }).click()
   await host.getByRole('button', { name: '3 人', exact: true }).click()
-  await host.getByLabel('黄方控制方式').selectOption('ai')
+  await host.getByLabel('黄方控制方式').selectOption('wasm')
   await host.getByLabel('AI 每步思考上限').selectOption('3000')
   await host.getByRole('spinbutton').last().fill('16')
   await host.getByRole('spinbutton').last().dispatchEvent('change')

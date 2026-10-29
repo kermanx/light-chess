@@ -1,13 +1,19 @@
 import { computed, reactive, ref, watch } from 'vue'
-import { aiAuthority, board, dispatch, dispatchAi, isAiPlayer, remainingTime, state } from '../store'
+import { aiAuthority, aiProviderFor, board, dispatch, dispatchAi, isAiPlayer, remainingTime, state } from '../store'
 import type { Color } from '../game'
-import { isAiAction, makeAiRequest, toAiMoveAnalysis, type AiResponse, type AiStats } from './protocol'
+import { isAiAction, makeAiRequest, toAiMoveAnalysis, type AiStats } from './protocol'
+import { dshConfigToken, readDshConfig } from './config'
+import { createDshWorker } from './dsh-provider'
+import { redactAiDetail, type AiProvider, type AiWorkerMessage, type DshConfig } from './providers'
 import { emitAiSearch, type AiSearchEvent } from './telemetry'
+import { DshActivityTracker, dshActivityLabel } from './dsh-activity'
 
 export const aiStatus = reactive({
   status: 'idle' as 'idle' | 'thinking' | 'error',
   color: null as Color | null,
   error: '',
+  progress: '',
+  provider: 'wasm' as AiProvider,
   stats: null as AiStats | null,
 })
 const retry = ref(0)
@@ -15,6 +21,10 @@ export function retryAi() {
   if (!aiAuthority() || state.peerLeft) return
   if (state.aiPaused) dispatch({ kind: 'ai-resume', color: state.players[0] })
   else retry.value++
+}
+
+export function cancelAi() {
+  if (aiAuthority() && !state.peerLeft && !state.aiPaused) dispatch({ kind: 'ai-pause', color: state.players[0] })
 }
 
 /** All human homes are chosen before AI homes, so setup search sees a stable position. */
@@ -25,8 +35,8 @@ export const aiTurnColor = computed<Color | null>(() => {
 })
 
 /** Keep the worker off the main thread; termination also cancels synchronous WASM searches. */
-export function startAiController(createWorker: () => Worker = () =>
-  new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' })) {
+export function startAiController(createWorker: (provider: AiProvider) => Worker = provider =>
+  provider === 'dsh' ? createDshWorker() : new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' })) {
   let active: Worker | null = null
   let timeout: ReturnType<typeof setTimeout> | null = null
   let generation = 0
@@ -43,26 +53,35 @@ export function startAiController(createWorker: () => Worker = () =>
     if (timeout !== null) clearTimeout(timeout)
     timeout = null
   }
+  const configToken = computed(() => aiTurnColor.value
+    ? dshConfigToken(state.aiProfileIds[aiTurnColor.value]) : '')
   const stop = watch(() => [
     state.positionRevision, state.mode, state.myColor, state.phase, state.current,
-    state.peerLeft, state.aiPaused, state.boundaryReflects, state.aiBudgetMs,
+    state.peerLeft, state.aiPaused, state.boundaryReflects,
+    aiTurnColor.value ? aiProviderFor(aiTurnColor.value) : null,
+    aiTurnColor.value && aiProviderFor(aiTurnColor.value) === 'dsh' ? configToken.value : state.aiBudgetMs,
     state.aiPlayers.join(','), aiTurnColor.value, retry.value,
   ], () => {
     cancel()
     aiStatus.status = 'idle'
     aiStatus.error = ''
+    aiStatus.progress = ''
     aiStatus.color = aiTurnColor.value
     const color = aiTurnColor.value
     if (!color || !aiAuthority() || state.peerLeft || state.aiPaused) return
-    const fail = (message: string, context?: Record<string, unknown>) => {
-      report('search-error', { message, ...context })
+    const provider = aiProviderFor(color)
+    aiStatus.provider = provider
+    let dsh: DshConfig | undefined
+    const fail = (rawMessage: string, context?: Record<string, unknown>) => {
+      const message = redactAiDetail(rawMessage, dsh?.apiKey) as string
+      report('search-error', redactAiDetail({ message, ...context }, dsh?.apiKey))
       cancel(true)
       aiStatus.status = 'error'
       aiStatus.error = message
     }
     if (!state.boundaryReflects) return fail('AI 需要开启边界反射')
     let budgetMs = state.aiBudgetMs
-    if (state.phase === 'play' && state.clockSettings.enabled) {
+    if (provider === 'wasm' && state.phase === 'play' && state.clockSettings.enabled) {
       budgetMs = Math.max(1, Math.min(budgetMs, Math.floor(remainingTime(color, Date.now()) - 200)))
     }
     const request = makeAiRequest(board, {
@@ -71,19 +90,39 @@ export function startAiController(createWorker: () => Worker = () =>
     const expected = generation
     const revision = state.positionRevision
     search = { searchId: crypto.randomUUID(), gameId: state.sessionId, revision }
-    report('search-start', { color, request })
+    report('search-start', { color, provider, request })
     aiStatus.status = 'thinking'
     aiStatus.stats = null
     try {
-      const worker = createWorker()
+      if (provider === 'dsh') dsh = readDshConfig(state.aiProfileIds[color])
+      const worker = createWorker(provider)
+      const activity = new DshActivityTracker(Date.now())
+      let lastProgressAt = 0, lastStage = ''
       active = worker
-      worker.onmessage = (event: MessageEvent<AiResponse>) => {
+      worker.onmessage = (event: MessageEvent<AiWorkerMessage>) => {
         if (generation !== expected || state.positionRevision !== revision || state.peerLeft ||
           state.aiPaused || !aiAuthority() || aiTurnColor.value !== color) return
-        const result = event.data
-        report('search-result', { result })
+        const result = redactAiDetail(event.data, dsh?.apiKey) as AiWorkerMessage
         if (!result || typeof result !== 'object') return fail('AI 返回了无效结果，请重试')
-        if (result.error) return fail(result.error)
+        if ('type' in result) {
+          if (result.type === 'trajectory') {
+            report('search-trajectory', result.payload)
+            const now = Date.now()
+            activity.consume(result.payload, now)
+            const current = activity.snapshot()
+            if (current.stage !== lastStage || now - lastProgressAt >= 500) {
+              lastProgressAt = now; lastStage = current.stage
+              aiStatus.progress = `DSH · ${dshActivityLabel(current)}${current.characters ? ` · 已接收 ${current.characters.toLocaleString()} 字符` : ''}`
+            }
+            return
+          }
+          if (result.type !== 'progress') return fail('AI 返回了未知消息，请重试')
+          aiStatus.progress = typeof result.message === 'string' ? result.message.slice(0, 280) : ''
+          report('search-progress', { provider, ...result })
+          return
+        }
+        report('search-result', { result })
+        if (result.error) return fail(typeof result.error === 'string' ? result.error : 'AI 请求失败')
         if (!isAiAction(result.action)) return fail('AI 未返回可用落子，请重试')
         if ((request.phase === 'setup') !== (result.action.kind === 'setup')) return fail('AI 返回了错误阶段的动作')
         const finished = search!
@@ -103,10 +142,10 @@ export function startAiController(createWorker: () => Worker = () =>
           { source: 'worker', filename: event.filename, line: event.lineno, column: event.colno },
         )
       }
-      timeout = setTimeout(() => {
+      if (provider === 'wasm') timeout = setTimeout(() => {
         if (generation === expected) fail('AI 搜索超时，请重试或缩短思考时间')
       }, budgetMs + 10_000)
-      worker.postMessage(request)
+      worker.postMessage(dsh ? { ...request, dsh } : request)
     } catch (error) {
       fail(error instanceof Error ? error.message : String(error))
     }

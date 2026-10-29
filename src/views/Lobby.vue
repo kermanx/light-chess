@@ -4,7 +4,12 @@ import { MAX_PLAYERS, MIN_PLAYERS, PALETTE, type Color } from '../game'
 import { announceRoom, watchRooms, type PublicRoom } from '../directory'
 import { isValidCode, netClose, netCreate, netJoin, signaling, type Signaling } from '../net'
 import { SIZE_MAX, SIZE_MIN, startLocal, state } from '../store'
+import DshSettings from '../components/DshSettings.vue'
+import DshProfileSelect from '../components/DshProfileSelect.vue'
+import { defaultDshProfileId, readDshConfig } from '../ai/config'
+import type { AiProfileIds, AiProvider, AiProviders } from '../ai/providers'
 import ClockSettings from '../components/ClockSettings.vue'
+import { appBase } from '../replay/navigation'
 
 const view = ref<'menu' | 'configure' | 'created' | 'join'>('menu')
 const preparing = ref<'local' | 'online'>('local')
@@ -16,13 +21,20 @@ const copied = ref(false)
 /** 玩家人数（单机与创建房间共用） */
 const count = ref(MIN_PLAYERS)
 const aiSeats = ref<Color[]>([])
+const aiProviders = ref<AiProviders>({})
+const aiProfileIds = ref<AiProfileIds>({})
 const configuredSeats = computed(() => PALETTE.slice(0, count.value))
 const selectedAi = computed(() => configuredSeats.value.map(p => p.id).filter(c =>
   aiSeats.value.includes(c) && (preparing.value !== 'online' || c !== PALETTE[0].id)))
+const hasDsh = computed(() => selectedAi.value.some(c => aiProviders.value[c] === 'dsh'))
+const hasWasm = computed(() => selectedAi.value.some(c => aiProviders.value[c] !== 'dsh'))
 const hasAi = computed(() => selectedAi.value.length > 0)
 watch(hasAi, value => { if (value) state.boundaryReflects = true })
 function changeSeat(color: Color, event: Event) {
-  const ai = (event.target as HTMLSelectElement).value === 'ai'
+  const value = (event.target as HTMLSelectElement).value
+  const ai = value !== 'human'
+  if (ai) aiProviders.value[color] = value as AiProvider
+  if (value === 'dsh' && !aiProfileIds.value[color]) aiProfileIds.value[color] = defaultDshProfileId()
   aiSeats.value = ai ? [...aiSeats.value.filter(c => c !== color), color] : aiSeats.value.filter(c => c !== color)
 }
 function challengeAi() {
@@ -68,8 +80,17 @@ function clampSize(e: Event) {
   state.size = Math.max(SIZE_MIN, Math.min(SIZE_MAX, Number.isFinite(v) ? v : state.size))
 }
 
+function checkProfiles() {
+  for (const color of selectedAi.value) if (aiProviders.value[color] === 'dsh') {
+    readDshConfig(aiProfileIds.value[color])
+    aiProfileIds.value[color] ||= defaultDshProfileId()
+  }
+}
 function local() {
-  startLocal(count.value, selectedAi.value)
+  try {
+    checkProfiles()
+    startLocal(count.value, selectedAi.value, aiProviders.value, aiProfileIds.value)
+  } catch (e) { error.value = (e as Error).message }
 }
 
 function prepare(mode: 'local' | 'online') {
@@ -133,7 +154,8 @@ async function create() {
   busy.value = true
   error.value = ''
   try {
-    code.value = await netCreate(count.value, sig.value, selectedAi.value)
+    checkProfiles()
+    code.value = await netCreate(count.value, sig.value, selectedAi.value, aiProviders.value, aiProfileIds.value)
     if (state.phase !== 'lobby') return
     view.value = 'created'
     void syncAnnounce()
@@ -151,7 +173,8 @@ async function onSigChange(e: Event) {
   busy.value = true
   error.value = ''
   try {
-    code.value = await netCreate(count.value, sig.value, selectedAi.value)
+    checkProfiles()
+    code.value = await netCreate(count.value, sig.value, selectedAi.value, aiProviders.value, aiProfileIds.value)
     void syncAnnounce()
   } catch (err) {
     error.value = (err as Error).message
@@ -220,6 +243,8 @@ onMounted(() => {
           <span class="card-desc">输入房间号入座</span>
         </button>
       </div>
+      <a class="btn-plain replay-entry" :href="`${appBase()}replays`">对局回放 · DSH vs 规则 AI</a>
+      <DshSettings />
     </div>
 
     <div v-else-if="view === 'configure'" class="panel">
@@ -243,23 +268,28 @@ onMounted(() => {
           </button>
         </div>
         <div class="seat-settings" aria-label="玩家座位">
-          <label v-for="p in configuredSeats" :key="p.id" class="seat-row">
+          <div v-for="p in configuredSeats" :key="p.id" class="seat-card"><label class="seat-row">
             <span :style="{ color: p.hex }">{{ p.name }}方{{ preparing === 'online' && p.id === 'blue' ? '（房主）' : '' }}</span>
-            <select class="sig-select" :aria-label="`${p.name}方控制方式`" :value="selectedAi.includes(p.id) ? 'ai' : 'human'"
+            <select class="sig-select" :aria-label="`${p.name}方控制方式`" :value="selectedAi.includes(p.id) ? (aiProviders[p.id] ?? 'wasm') : 'human'"
               :disabled="preparing === 'online' && p.id === 'blue'" @change="changeSeat(p.id, $event)">
               <option value="human">{{ preparing === 'online' ? '真人玩家' : '人类' }}</option>
-              <option value="ai">AI</option>
+              <option value="wasm">AI · Rust / WASM</option>
+              <option value="dsh">AI · DSH</option>
             </select>
           </label>
+          <DshProfileSelect v-if="selectedAi.includes(p.id) && aiProviders[p.id] === 'dsh'" v-model="aiProfileIds[p.id]" :label="`${p.name}方 LLM 配置`" />
+          </div>
         </div>
-        <label v-if="hasAi" class="laser-opt">
-          AI 每步最多思考
+        <label v-if="hasWasm" class="laser-opt">
+          WASM 每步最多思考
           <select v-model.number="state.aiBudgetMs" class="sig-select" aria-label="AI 每步思考上限">
             <option :value="3000">3 秒</option>
             <option :value="10000">10 秒</option>
             <option :value="30000">30 秒（棋力优先）</option>
           </select>
         </label>
+        <DshSettings v-if="hasDsh" />
+        <p v-if="hasDsh" class="ai-hint">DSH 不使用 WASM 的思考上限；启用棋钟时仍受棋局时间限制。</p>
         <p v-if="hasAi" class="ai-hint">AI 可提前落子，自动布置基地，需要边界反射。联机 AI 由房主运行，不占真人连接。</p>
         <label class="laser-opt">棋盘
           <input class="size-input" type="number" :min="SIZE_MIN" :max="SIZE_MAX" :value="state.size" @change="clampSize" />
@@ -394,6 +424,8 @@ onMounted(() => {
 </template>
 
 <style scoped>
+.seat-card { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.replay-entry { color: inherit; text-decoration: none; }
 .seat-settings { display: flex; flex-direction: column; gap: 10px; }
 .seat-row { display: flex; align-items: center; justify-content: space-between; gap: 18px; font-size: 14px; }
 .ai-hint { margin: 0; font-size: 12px; color: #8a7f68; line-height: 1.6; }
