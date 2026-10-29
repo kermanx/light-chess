@@ -8,6 +8,8 @@
 
 浏览器通过独立 Worker 调用 WASM。每次搜索传入一次 v1 JSON 快照，返回一个动作和统计。搜索不访问 Vue/store，不持有 JS 对象。最终动作仍由 TypeScript 棋局权威层检查和结算。
 
+本地预览运行期间重新构建会保留 `dist` 中旧版哈希资源，确保已经打开的页面在后续回合仍能加载配套的 Worker / WASM。页面刷新后才切换到新版；需要清理旧产物时，应先停止预览并结束旧页面。CI 的干净构建不受影响。`node scripts/ai-preview-update-check.mjs` 验证页面打开后重新构建，旧页面仍能完成真实 AI 落子。
+
 原生 ABI：
 
 - `alloc(length) -> pointer`：分配输入缓冲区。

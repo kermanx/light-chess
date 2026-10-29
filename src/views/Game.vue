@@ -4,6 +4,8 @@ import ClockSettings from '../components/ClockSettings.vue'
 import ChessClock from '../components/ChessClock.vue'
 import VictoryBeam from '../components/VictoryBeam.vue'
 import GameResult from '../components/GameResult.vue'
+import AiTestPanel from '../components/AiTestPanel.vue'
+import { aiTest, leaveAiTestMode, startAiTestGame } from '../ai/test-session'
 import type { ClockSettings as ClockConfig } from '../clock'
 import { aiStatus, aiTurnColor, retryAi } from '../ai/controller'
 import { netClose } from '../net'
@@ -318,10 +320,12 @@ const isHostSide = computed(() => state.mode === 'local' || state.myColor === ho
 
 function restart() {
   pendingHome.value = null
+  if (aiTest.active) { startAiTestGame(); return }
   dispatch({ kind: 'restart', color: state.mode === 'online' ? state.myColor! : state.players[0] })
 }
 
 function leaveGame() {
+  if (aiTest.active) { leaveAiTestMode(); return }
   netClose()
   toLobby()
   history.pushState(null, '', location.pathname.replace(/s\/[^/]+\/?$/, ''))
@@ -434,9 +438,9 @@ function changeClock(settings: ClockConfig) {
   dispatch({ kind: 'clock-setting', color: state.mode === 'online' ? hostColor.value : setupColor.value, settings })
 }
 
-// 棋盘尺寸变化会重置对局，清掉本地待选状态
+// 棋盘尺寸变化或切换测试记录时，清掉上一局的待选状态。
 watch(
-  () => state.size,
+  () => [state.size, aiTest.gameId],
   () => {
     pendingHome.value = null
     hoverExitDir.value = null
@@ -801,9 +805,10 @@ const statusText = computed(() => {
         <p class="ai-analysis-label">上一步 · {{ name(lastAiAnalysis.color) }} AI <span>思考 {{ thinkingTime(lastAiAnalysis.elapsedMs) }}</span></p>
         <p v-if="lastAiAnalysis.reason" class="ai-analysis-reason">{{ lastAiAnalysis.reason }}</p>
       </div>
-      <ChessClock />
+      <AiTestPanel v-if="aiTest.active" class="note" />
+      <ChessClock v-else />
 
-      <div class="note meta-note">
+      <div v-if="!aiTest.active" class="note meta-note">
         <label
           v-if="state.phase === 'setup' && (state.mode === 'local' || state.myColor === hostColor)"
           class="size-ctl"
@@ -834,8 +839,8 @@ const statusText = computed(() => {
       </div>
 
       <div class="ctl-note note">
-      <ClockSettings :settings="state.clockSettings" :disabled="state.phase !== 'setup' || !isHostSide" @change="changeClock" />
-      <label class="chk">
+      <ClockSettings v-if="!aiTest.active" :settings="state.clockSettings" :disabled="state.phase !== 'setup' || !isHostSide" @change="changeClock" />
+      <label v-if="!aiTest.active" class="chk">
         <input type="checkbox" :checked="state.boundaryReflects"
           :disabled="state.phase !== 'setup' || !isHostSide || state.aiPlayers.length > 0" @change="toggleBoundary" />
         边界反射
@@ -856,7 +861,7 @@ const statusText = computed(() => {
       <span v-else class="laser-tag">鼠标悬停在「家」上可查看光路</span>
       <div v-if="undoAvailable || isHostSide" class="btn-row">
         <button v-if="undoAvailable" class="btn-plain" :disabled="!canUndoNow" @click="undo">撤回一步</button>
-        <button v-if="isHostSide" class="btn-plain" @click="restart">重新开始</button>
+        <button v-if="isHostSide && !aiTest.active" class="btn-plain" @click="restart">重新开始</button>
       </div>
       <button class="btn-plain" @click="leaveGame">回到大厅</button>
     </div>
@@ -865,14 +870,16 @@ const statusText = computed(() => {
       <h3>怎么玩</h3>
       <div class="help-body">
         <p><b>目标</b>：让自家的激光经镜面反射，打到别人的家。</p>
-        <p><b>开局</b>：各选一个格子当家并指定开口，其余 3 条边自动放上你的镜子。家向四个方向发光，光线也能穿过自己的家镜。</p>
+        <p v-if="aiTest.active"><b>开局</b>：基地已自动布置，蓝方先手；直接放置镜子开始测试。</p>
+        <p v-else><b>开局</b>：各选一个格子当家并指定开口，其余 3 条边自动放上你的镜子。家向四个方向发光，光线也能穿过自己的家镜。</p>
         <p><b>放镜</b>：轮流每回合放一面，不可移除。点网格边放边镜；左键格子放「/」、右键放「\」斜镜，Shift 反向。对方基地的开口也可放镜，仍须遵守禁围规则。</p>
         <p><b>反射</b>：自己的镜子对自己半反射（穿过+反射），别人的镜子只反射。</p>
-        <p><b>边界</b>：开启「边界反射」时，边界对所有光线全反射；关闭时出界光线终止。开局后不可更改。</p>
+        <p v-if="aiTest.active"><b>边界</b>：测试模式中，边界始终对所有光线全反射。</p>
+        <p v-else><b>边界</b>：开启「边界反射」时，边界对所有光线全反射；关闭时出界光线终止。开局后不可更改。</p>
         <p><b>限制</b>：每种颜色的边镜、斜镜分别连同边框，不能把仍在场的基地彼此隔开；所有基地仍在同一区域时允许。</p>
-        <p><b>布置</b>：允许基地同排或同列，只禁止先手在开局立即命中基地的布置；后续回合的光路威胁仍可通过放镜化解。</p>
+        <p v-if="!aiTest.active"><b>布置</b>：允许基地同排或同列，只禁止先手在开局立即命中基地的布置；后续回合的光路威胁仍可通过放镜化解。</p>
         <p><b>结算</b>：轮到谁就在其回合开头结算其激光；被打中出局（✕）。双人打中即胜，多人活到最后获胜。</p>
-        <p><b>棋钟</b>：只扣当前行动者的时间，合法放镜后加秒；超时出局，多人局继续。掉线等待重连时暂停。</p>
+        <p v-if="!aiTest.active"><b>棋钟</b>：只扣当前行动者的时间，合法放镜后加秒；超时出局，多人局继续。掉线等待重连时暂停。</p>
       </div>
     </div>
     </aside>

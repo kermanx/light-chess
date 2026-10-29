@@ -26,3 +26,6 @@ dist-ssr
 # Rust AI build outputs
 ai/target/
 src/ai/engine.wasm
+
+# Local AI playtest archives (kept across builds and restarts)
+/debug/ai-games/

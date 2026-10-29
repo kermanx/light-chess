@@ -2,10 +2,9 @@ import { createApp } from 'vue'
 import './style.css'
 import App from './App.vue'
 import { startAiController } from './ai/controller'
+import { enterAiTestMode, exitAiTestMode, isAiTestRoute } from './ai/test-session'
 import { netClose, netRejoin } from './net'
 import { applySnapshot, broadcastClock, loadSave, persistGame, state, tickClock, toLobby, type Snapshot } from './store'
-
-createApp(App).mount('#app')
 
 /** 当前 URL 中的对局会话 id（/s/<id>），不在对局路径下为 null */
 const sessionMatch = () => location.pathname.match(/\/s\/([^/]+?)\/?$/)?.[1] ?? null
@@ -21,10 +20,17 @@ function restore(save: Snapshot) {
 }
 
 // 刷新恢复：URL 的 /s/<id> 与存档 sessionId 对上才恢复（旧格式存档已被 loadSave 忽略）
-const save = loadSave()
-const sid = sessionMatch()
-if (save && sid && save.sessionId === sid) restore(save)
-startAiController()
+async function boot() {
+  if (isAiTestRoute()) await enterAiTestMode()
+  else {
+    const save = loadSave()
+    const sid = sessionMatch()
+    if (save && sid && save.sessionId === sid) restore(save)
+  }
+  createApp(App).mount('#app')
+  startAiController()
+}
+void boot()
 
 // 用绝对时间计算剩余量，后台定时器被节流也不会漏扣时间。
 let lastClockSync = 0
@@ -43,7 +49,13 @@ addEventListener('pagehide', () => {
 })
 
 // 浏览器后退/前进：回大厅（存档保留）↔ 恢复对局
-addEventListener('popstate', () => {
+addEventListener('popstate', async () => {
+  if (isAiTestRoute()) {
+    netClose()
+    await enterAiTestMode()
+    return
+  }
+  exitAiTestMode()
   const id = sessionMatch()
   const s = loadSave()
   if (id && s && s.sessionId === id && state.sessionId !== id) {

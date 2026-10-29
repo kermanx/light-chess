@@ -33,6 +33,16 @@
 
 引擎的数据结构、搜索算法与限制见 [ai/README.md](ai/README.md)。
 
+### AI 测试页面与记录
+
+访问 `/ai-test`（本地预览为 `http://127.0.0.1:4173/ai-test`）即可下棋：固定 16×16、无棋钟、边界反射，蓝方人类先手、红方 AI，双方基地自动摆好。刷新继续当前对局；「新对局」创建独立记录，旧记录不会被覆盖。普通对局的存档不受测试模式影响。
+
+每局有独立的 `/ai-test/<UUID>` 地址。所有合法落子、落子前后完整局面、撤回、思考上限修改、AI 原始请求/响应（含完整搜索统计）、取消/失败、刷新/离开都写入浏览器 IndexedDB。请求与实际落子通过 `searchId` 关联；`parentId` 与 `sequence` 保留事件顺序和分支。开局和刷新还记录引擎 SHA-256、规则代码摘要及构建时间，便于区别测试版本。步数统计包含后来撤回的落子。
+
+`npm run dev` 和 `npm run preview` 同时提供本地记录服务，自动追加到 `debug/ai-games/<UUID>.jsonl`（一行一个事件，已加入 gitignore）。只有收到服务端写入确认，页面才显示「记录已保存到本地文件」。失败的上传在浏览器保留并重试，重复请求按事件 ID 去重；停止服务或更新构建不会删除旧记录。可用 `LIGHT_CHESS_AI_LOG_DIR` 环境变量指定其他目录。
+
+静态部署没有本地写文件服务，仍会保留浏览器记录，并显示「仅保存在浏览器」。可点「导出当前记录」下载含完整事件的 JSON。清除网站数据会删除浏览器记录，但不会删除已经写入的本地文件。
+
 ## 本地开发
 
 ```bash
@@ -61,6 +71,7 @@ localStorage.setItem('light-chess:mqtt-relays', 'ws://localhost:8788')
 
 ```bash
 npm run test:ai                  # Rust/WASM、规则差分、战术与控制器测试
+npm run test:ai-page             # 构建 + 测试页、导出一致性及持久化端到端测试
 npx tsx scripts/sim-check.ts      # 光路模拟单元场景
 npx tsx scripts/boundary-check.ts # 边界反射、规则锁定与存档兼容
 npx tsx scripts/setup-check.ts    # 基地位置与开口方向、开局命中及多人布置
@@ -71,6 +82,7 @@ npx tsx scripts/ai-clock-check.ts # 撤回后 AI/真人棋钟、恢复广播和�
 npx tsx scripts/ai-analysis-check.ts # AI 落子说明、耗时、撤回/重开与旧存档兼容
 node scripts/ai-mode-check.mjs    # 混合 AI 座位、房主调度、联机同步及重连（自带服务）
 node scripts/ai-wasm-browser-check.mjs # 真实 WASM Worker、自动布置/落子、取消与混合联机（先 build:ai）
+node scripts/ai-test-page-check.mjs # 测试直达页、真实 WASM、落盘/断网补传、撤回与刷新（先 build）
 node scripts/visual-check.mjs     # 单机 UI 冒烟（需 dev 服务器）
 node scripts/victory-check.mjs    # 棋盘致胜光路、命中时序、手机与减少动态效果（自带服务）
 node scripts/enclosure-check.mjs  # 规则开关、边镜/斜镜禁围预览与落子（自带服务）
