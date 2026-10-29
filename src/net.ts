@@ -242,9 +242,19 @@ function sendHello(target?: string) {
 
 // ---------- 房主侧 ----------
 
+/** 房主可以把自己的座位交给 AI；连接与 AI 按颜色合并计数。 */
+function occupiedSeatCount(): number {
+  const occupied = new Set(state.aiPlayers)
+  for (const seatToken of connected) {
+    const color = seats.get(seatToken)
+    if (color && state.players.includes(color)) occupied.add(color)
+  }
+  return occupied.size
+}
+
 /** AI 席位立即就座，开局只等待真人连接。 */
 function hostStartIfReady(): boolean {
-  if (!isHost || started || connected.size + state.aiPlayers.length !== state.players.length) return false
+  if (!isHost || started || occupiedSeatCount() !== state.players.length) return false
   started = true
   const aiPlayers = [...state.aiPlayers]
   startOnline(state.myColor!, state.roomCode, state.players, aiPlayers, state.aiProviders, state.aiProfileIds, preparedOpening)
@@ -282,17 +292,17 @@ function hostOnHello(msg: Extract<Msg, { t: 'hello' }>, peerId: string) {
   }
   peerByToken.set(msg.token, peerId)
   connected.add(msg.token)
-  state.roomJoined = connected.size + state.aiPlayers.length
+  state.roomJoined = occupiedSeatCount()
   send(
-    { t: 'welcome', color, players: state.players.length, joined: connected.size + state.aiPlayers.length, started, aiPlayers: state.aiPlayers, aiProviders: { ...state.aiProviders }, aiProfileIds: { ...state.aiProfileIds }, aiBudgetMs: state.aiBudgetMs },
+    { t: 'welcome', color, players: state.players.length, joined: occupiedSeatCount(), started, aiPlayers: state.aiPlayers, aiProviders: { ...state.aiProviders }, aiProfileIds: { ...state.aiProfileIds }, aiBudgetMs: state.aiBudgetMs },
     peerId,
   )
-  send({ t: 'room-info', joined: connected.size + state.aiPlayers.length })
+  send({ t: 'room-info', joined: occupiedSeatCount() })
 
   if (hostStartIfReady()) return
   if (started) {
     if (rejoin) send({ t: 'sync', snap: serialize() }, peerId) // 重连者补发权威状态
-    if (connected.size + state.aiPlayers.length === state.players.length) {
+    if (occupiedSeatCount() === state.players.length) {
       // 全员在线：解除掉线锁定，并顺手做一次全量对齐
       state.peerLeft = false
       send({ t: 'sync', snap: serialize() })
@@ -313,11 +323,11 @@ function hostOnPeerLeave(peerId: string) {
   // 刷新后同一 token 已绑定新 peer；旧连接迟到的离线事件不能再次锁住棋盘。
   if (!found) return
   if (state.phase === 'lobby') {
-    state.roomJoined = connected.size + state.aiPlayers.length
-    send({ t: 'room-info', joined: connected.size + state.aiPlayers.length })
+    state.roomJoined = occupiedSeatCount()
+    send({ t: 'room-info', joined: occupiedSeatCount() })
   } else {
     state.peerLeft = true
-    if (relayRoom) send({ t: 'room-info', joined: connected.size + state.aiPlayers.length })
+    if (relayRoom) send({ t: 'room-info', joined: occupiedSeatCount() })
   }
 }
 
@@ -481,7 +491,7 @@ function waitWelcome(): Promise<void> {
 
 /** 创建房间，返回房间号（本方坐 0 号位）；signaling 决定信令通道并编入房号首位 */
 export async function netCreate(playerCount: number, signaling: Signaling = 'relay', aiPlayers: Color[] = [], aiProviders: AiProviders = {}, aiProfileIds: AiProfileIds = {}, opening?: OpeningPosition): Promise<string> {
-  if (opening && !validOpening(opening, state.size, seatColors(playerCount), aiPlayers.some(c => c !== 'blue' && seatColors(playerCount).includes(c)) || state.boundaryReflects)) {
+  if (opening && !validOpening(opening, state.size, seatColors(playerCount), aiPlayers.some(c => seatColors(playerCount).includes(c)) || state.boundaryReflects)) {
     throw new Error('预设局面与房间设置不符')
   }
   netClose()
@@ -494,15 +504,15 @@ export async function netCreate(playerCount: number, signaling: Signaling = 'rel
   const code = genCode(signaling)
   state.players = seatColors(playerCount)
   state.myColor = state.players[0]
-  // 建房时尚在大厅；房主座位始终保留给真人。
-  setAiPlayers(aiPlayers.filter(c => c !== state.players[0]))
+  // 房主身份仍绑定 0 号位；执棋方式可独立选择 AI。
+  setAiPlayers(aiPlayers)
   setAiProviders(aiProviders)
   setAiProfileIds(aiProfileIds)
   state.roomCode = code
-  state.roomJoined = 1 + state.aiPlayers.length
   state.peerLeft = false
   seats = new Map([[token, state.myColor]])
   connected = new Set([token])
+  state.roomJoined = occupiedSeatCount()
   peerByToken = new Map()
   saveNet({ code, token, host: true, players: playerCount, seats: Object.fromEntries(seats), aiPlayers: state.aiPlayers, aiProviders: { ...state.aiProviders }, aiProfileIds: { ...state.aiProfileIds }, aiBudgetMs: state.aiBudgetMs })
   await openRoom(code)
@@ -551,7 +561,7 @@ export async function netRejoin(code: string, color: Color, playerCount: number)
     connected = new Set([token])
     peerByToken = new Map()
     await openRoom(state.roomCode)
-    state.roomJoined = connected.size + state.aiPlayers.length
+    state.roomJoined = occupiedSeatCount()
     if (state.roomJoined === state.players.length) state.peerLeft = false
     return
   }

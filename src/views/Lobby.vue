@@ -44,7 +44,7 @@ const aiProviders = ref<AiProviders>({})
 const aiProfileIds = ref<AiProfileIds>({})
 const configuredSeats = computed(() => PALETTE.slice(0, count.value))
 const selectedAi = computed(() => configuredSeats.value.map(p => p.id).filter(c =>
-  aiSeats.value.includes(c) && (preparing.value !== 'online' || c !== PALETTE[0].id)))
+  aiSeats.value.includes(c)))
 const hasDsh = computed(() => selectedAi.value.some(c => aiProviders.value[c] === 'dsh'))
 const hasWasm = computed(() => selectedAi.value.some(c => aiProviders.value[c] !== 'dsh'))
 const hasAi = computed(() => selectedAi.value.length > 0)
@@ -298,7 +298,7 @@ onMounted(() => {
           <div v-for="p in configuredSeats" :key="p.id" class="seat-card"><label class="seat-row">
             <span :style="{ color: p.hex }">{{ p.name }}方{{ preparing === 'online' && p.id === 'blue' ? '（房主）' : '' }}</span>
             <select class="sig-select" :aria-label="`${p.name}方控制方式`" :value="selectedAi.includes(p.id) ? (aiProviders[p.id] ?? 'wasm') : 'human'"
-              :disabled="preparing === 'online' && p.id === 'blue'" @change="changeSeat(p.id, $event)">
+              @change="changeSeat(p.id, $event)">
               <option value="human">{{ preparing === 'online' ? '真人玩家' : '人类' }}</option>
               <option value="wasm">AI · Rust / WASM</option>
               <option value="dsh">AI · DSH</option>
@@ -318,6 +318,7 @@ onMounted(() => {
         <DshSettings v-if="hasDsh" />
         <p v-if="hasDsh" class="ai-hint">DSH 不使用 WASM 的思考上限；启用棋钟时仍受棋局时间限制。</p>
         <p v-if="hasAi" class="ai-hint">AI 可提前落子，自动布置基地，需要边界反射。联机 AI 由房主运行，不占真人连接。</p>
+        <p v-if="preparing === 'online' && selectedAi.includes('blue')" class="ai-hint">蓝方由 AI 执棋，你仍是房主，可以管理房间和 AI。请保持房主页面在线。</p>
         <label class="laser-opt">棋盘
           <input class="size-input" type="number" :min="SIZE_MIN" :max="SIZE_MAX" :value="state.size" @change="clampSize" />
           × {{ state.size }} 格

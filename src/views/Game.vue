@@ -553,6 +553,7 @@ const statusText = computed(() => {
     if (ghostHomeBad.value) return '这个位置会让先手在开局立即命中基地，请换一个位置'
     if (unsafeExit.value) return '这个开口会让先手在开局立即命中基地，请换个方向或位置'
     if (state.mode === 'online') {
+      if (isAiPlayer(state.myColor!)) return '等待真人玩家布置基地，随后 AI 自动布置…'
       if (!state.homes[state.myColor!])
         return pendingHome.value
           ? edgeExitHint.value
@@ -869,7 +870,9 @@ const statusText = computed(() => {
         <span v-else class="room">棋盘 {{ state.size }}×{{ state.size }}</span>
         <span v-if="state.openingSettings.enabled" class="room">预设开局 · 每方 {{ state.openingSettings.mirrorsPerPlayer }} 面额外镜子</span>
         <span v-if="state.mode === 'online'" class="room">
-          房间 {{ state.roomCode }} · 你执{{ name(state.myColor!) }}
+          房间 {{ state.roomCode }} ·
+          <template v-if="isAiPlayer(state.myColor!)">你是房主（{{ name(state.myColor!) }}由 AI 执棋）</template>
+          <template v-else>你执{{ name(state.myColor!) }}</template>
         </span>
         <div v-for="c in state.aiPlayers" :key="`ai-${c}`" class="room ai-provider-control" :style="{ color: COLORS[c] }">
           {{ name(c) }} AI

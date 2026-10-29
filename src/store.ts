@@ -151,7 +151,7 @@ export const lastAiAnalysis = computed(() => {
 })
 export const aiAuthority = () => state.mode === 'local' || (state.mode === 'online' && state.myColor === state.players[0])
 export function setAiPlayers(colors: Color[]) {
-  state.aiPlayers = state.players.filter(c => colors.includes(c) && (state.mode !== 'online' || c !== state.players[0]))
+  state.aiPlayers = state.players.filter(c => colors.includes(c))
   if (state.aiPlayers.length) state.boundaryReflects = true
 }
 
@@ -319,7 +319,7 @@ export function startLocal(playerCount = 2, aiPlayers: Color[] = [], aiProviders
 
 /** 联机模式下所有人到齐，开始布置 */
 export function startOnline(myColor: Color, roomCode: string, players: Color[], aiPlayers: Color[] = [], aiProviders: AiProviders = {}, aiProfileIds: AiProfileIds = {}, opening?: OpeningPosition) {
-  checkOpening(opening, players, aiPlayers.filter(c => c !== players[0]))
+  checkOpening(opening, players, aiPlayers)
   state.mode = 'online'
   state.myColor = myColor
   state.roomCode = roomCode
