@@ -261,7 +261,6 @@ onMounted(() => {
         </button>
       </div>
       <a class="btn-plain replay-entry" :href="`${appBase()}replays`">对局记录</a>
-      <DshSettings />
     </div>
 
     <div v-else-if="view === 'configure'" class="panel">

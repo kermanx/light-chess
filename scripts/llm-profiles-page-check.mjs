@@ -50,6 +50,9 @@ try {
   page.on('pageerror', e => errors.push(e.message))
   const base = `http://127.0.0.1:${server.httpServer.address().port}`
   await page.goto(base)
+  assert.equal(await page.getByRole('button', { name: /管理 LLM 配置/ }).count(), 0)
+  await page.getByRole('button', { name: /单机对战/ }).click()
+  await page.getByLabel('蓝方控制方式').selectOption('dsh')
   await page.getByRole('button', { name: /管理 LLM 配置/ }).click()
   const dialog = page.getByRole('dialog', { name: 'LLM 配置', exact: true })
   async function fill(name, side) {
@@ -77,6 +80,8 @@ try {
   await dialog.getByRole('button', { name: '完成', exact: true }).click()
   await dialog.getByRole('button', { name: '放弃更改', exact: true }).click()
   await page.reload()
+  await page.getByRole('button', { name: /单机对战/ }).click()
+  await page.getByLabel('蓝方控制方式').selectOption('dsh')
   await page.getByRole('button', { name: /管理 LLM 配置/ }).click()
   assert.equal(await dialog.getByLabel('LLM 配置名称').inputValue(), '蓝方模型')
   assert.equal(await dialog.locator('.profile-item').count(), 2)
@@ -88,7 +93,6 @@ try {
   await page.screenshot({ path: '.dsh-build/llm-profiles-mobile.png' })
   await page.setViewportSize({ width: 1440, height: 1000 })
   await dialog.getByRole('button', { name: '完成', exact: true }).click()
-  await page.getByRole('button', { name: /单机对战/ }).click()
   await page.getByLabel('蓝方控制方式').selectOption('dsh')
   await page.getByLabel('红方控制方式').selectOption('dsh')
   await page.getByLabel('红方 LLM 配置').selectOption({ label: '红方模型 · fixture-red' })
