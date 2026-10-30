@@ -1,6 +1,6 @@
 import { computed, markRaw, reactive, ref, watch } from 'vue'
 import { alignRecording, appendRecording, newRecording, type RecordedGame } from './replay/recording'
-import { toAiMoveAnalysis, type AiMoveAnalysis } from './ai/protocol'
+import { toAiMoveAnalysis, type AiMoveAnalysis, type NnSearchLimit } from './ai/protocol'
 import type { AiProfileIds, AiProvider, AiProviders } from './ai/providers'
 import { defaultOpeningSettings, normalizeOpeningSettings, validOpening, type OpeningPosition, type OpeningSettings } from './opening'
 import { defaultClockSettings, freshClock, normalizeClockSettings, timeLeft, type ClockSettings, type ClockState, type ClockSync } from './clock'
@@ -24,10 +24,27 @@ import {
 
 export type Phase = 'lobby' | 'setup' | 'play' | 'over'
 
+/**
+ * AI 座位的实现由 aiProviders 决定（wasm/dsh/nn；缺省 = 内置 WASM 引擎，思考上限读全局 aiBudgetMs）。
+ * NnSeatConfig 是 nn 座位的附属配置（见 aiNnConfigs）：本地浏览器 NN 模型
+ * （onnxruntime-web，public/models/models.json 里的 modelId），
+ * stochastic 为 true 时按温度 0.5 采样，否则 argmax。
+ * limit：MCTS 计算量控制。{type:'sims'} 跑满指定模拟数（150 为训练/评测标准档）；
+ * 缺省或 {type:'time'} = 时间模式，跟全局 aiBudgetMs（旧存档/旧联机消息无 limit 字段）。
+ */
+export type { NnSearchLimit }
+export interface NnSeatConfig { modelId: string; stochastic?: boolean; limit?: NnSearchLimit }
+export type AiNnConfigs = Partial<Record<Color, NnSeatConfig>>
+
 export interface VictoryReplay {
   source: Color
   targets: { color: Color; path: Pt[] }[]
 }
+
+/** 一手落子记录（复盘提交给 /api/analyze 的 moves 元素；家的自动镜不算） */
+export type MoveRecord =
+  | { kind: 'edge'; id: string; color: Color }
+  | { kind: 'diag'; x: number; y: number; ori: Ori; color: Color }
 
 /** 上一步放置的镜子（家的自动镜不算），用于 UI 加粗高亮与撤回权限判定 */
 export type LastMove = (
@@ -60,6 +77,7 @@ export type Action =
   | { kind: 'ai-pause'; color: Color }
   | { kind: 'ai-provider-setting'; color: Color; target: Color; provider: AiProvider }
   | { kind: 'ai-profile-setting'; color: Color; target: Color; profileId: string }
+  | { kind: 'ai-nn-setting'; color: Color; target: Color; nn: NnSeatConfig }
   | { kind: 'board-size'; color: Color; size: number }
   | { kind: 'boundary-setting'; color: Color; enabled: boolean }
   | { kind: 'clock-setting'; color: Color; settings: ClockSettings }
@@ -82,6 +100,8 @@ export const state = reactive({
   aiProviders: {} as AiProviders,
   aiProfileIds: {} as AiProfileIds,
   aiBudgetMs: 10_000,
+  /** nn 座位的模型配置（无记录的 nn 座位在启动时补默认模型） */
+  aiNnConfigs: {} as AiNnConfigs,
   /** 撤回后暂停 AI，避免刚撤掉的一步被立即重下。 */
   aiPaused: false,
   positionRevision: 0,
@@ -109,6 +129,8 @@ export const state = reactive({
   undoFloor: 0,
   /** 上一步放置的镜子（用于加粗高亮；家的自动镜不算） */
   lastMove: null as LastMove,
+  /** 本局全部落子顺序记录（play 阶段；撤回弹出末尾） */
+  moves: [] as MoveRecord[],
   /** 本局会话 id（对局 URL /s/<id> 与存档对应，浏览器后退/前进恢复用） */
   sessionId: '',
   /** One immutable, compact timeline per round, shared with peers on synchronization. */
@@ -132,9 +154,15 @@ export const board: BoardState = {
 /** 房主（0 号座位） */
 export const hostColor = computed<Color>(() => state.players[0])
 export const isAiPlayer = (color: Color) => state.aiPlayers.includes(color)
-export const aiProviderFor = (color: Color): AiProvider => state.aiProviders[color] === 'dsh' ? 'dsh' : 'wasm'
+export const aiProviderFor = (color: Color): AiProvider => {
+  const p = state.aiProviders[color]
+  return p === 'dsh' || p === 'nn' ? p : 'wasm'
+}
 export function setAiProviders(providers: AiProviders = {}) {
-  state.aiProviders = Object.fromEntries(state.aiPlayers.map(color => [color, providers?.[color] === 'dsh' ? 'dsh' : 'wasm']))
+  state.aiProviders = Object.fromEntries(state.aiPlayers.map(color => {
+    const p = providers?.[color]
+    return [color, p === 'dsh' || p === 'nn' ? p : 'wasm']
+  }))
 }
 export function setAiProfileIds(ids: AiProfileIds = {}) {
   state.aiProfileIds = Object.fromEntries(state.aiPlayers.flatMap(color => {
@@ -156,7 +184,56 @@ export const aiAuthority = () => state.mode === 'local' || (state.mode === 'onli
 export function setAiPlayers(colors: Color[]) {
   state.aiPlayers = state.players.filter(c => colors.includes(c))
   if (state.aiPlayers.length) state.boundaryReflects = true
+  // 清掉已失效座位的 NN 配置
+  for (const c of Object.keys(state.aiNnConfigs) as Color[]) {
+    if (!state.aiPlayers.includes(c)) delete state.aiNnConfigs[c]
+  }
 }
+
+/** 把外部数据（快照/联机消息）里的 NN 座位配置清洗成合法形态；无法识别的座位整体丢弃 */
+export function sanitizeAiNnConfigs(value: unknown): AiNnConfigs {
+  const out: AiNnConfigs = {}
+  if (!value || typeof value !== 'object') return out
+  for (const [color, spec] of Object.entries(value)) {
+    if (!spec || typeof spec !== 'object') continue
+    const s = spec as Record<string, unknown>
+    if (typeof s.modelId !== 'string' || !s.modelId) continue
+    const l = s.limit as Record<string, unknown> | undefined
+    const limit: NnSearchLimit | undefined =
+      l?.type === 'sims' && Number.isInteger(l.sims) && (l.sims as number) > 0
+        ? { type: 'sims', sims: Math.min(l.sims as number, 10_000) }
+        : l?.type === 'time' ? { type: 'time' } : undefined
+    out[color as Color] = { modelId: s.modelId, ...(s.stochastic ? { stochastic: true } : {}), ...(limit ? { limit } : {}) }
+  }
+  return out
+}
+
+/**
+ * 旧格式（v1 前期存档/联机消息）的 aiEngines 字段迁移：nn 座位拆成
+ * provider='nn' + aiNnConfigs 条目；wasm 座位即缺省 provider，无需迁移。
+ */
+export function sanitizeLegacyAiEngines(value: unknown): { providers: AiProviders; nnConfigs: AiNnConfigs } {
+  const providers: AiProviders = {}
+  const nnConfigs: AiNnConfigs = {}
+  if (!value || typeof value !== 'object') return { providers, nnConfigs }
+  for (const [color, spec] of Object.entries(value)) {
+    const s = spec as Record<string, unknown> | null
+    if (s?.kind !== 'nn' || typeof s.modelId !== 'string' || !s.modelId) continue
+    providers[color as Color] = 'nn'
+    Object.assign(nnConfigs, sanitizeAiNnConfigs({ [color]: s }))
+  }
+  return { providers, nnConfigs }
+}
+
+/** 设置各 nn 座位的配置（只保留仍是 AI 的座位） */
+export function setAiNnConfigs(configs: AiNnConfigs = {}) {
+  state.aiNnConfigs = {}
+  for (const c of state.aiPlayers) if (configs[c]) state.aiNnConfigs[c] = configs[c]
+}
+
+/** 某 AI 座位的 NN 配置；非 nn 座位或无记录时为 null */
+export const aiNnConfigFor = (color: Color): NnSeatConfig | null =>
+  aiProviderFor(color) === 'nn' ? state.aiNnConfigs[color] ?? null : null
 
 /** 回合顺序中的下一位存活玩家 */
 const nextAlive = (c: Color): Color => {
@@ -286,6 +363,7 @@ function resetBoard(opening?: OpeningPosition) {
   state.victoryReplay = null
   state.dead = []
   state.lastMove = null
+  state.moves = []
   state.timedOut = []
   state.clock = freshClock(state.clockSettings, state.clock.revision + 1)
   clearHistory()
@@ -305,7 +383,7 @@ function checkOpening(opening: OpeningPosition | undefined, players: Color[], ai
 }
 
 /** 进入单机模式 */
-export function startLocal(playerCount = 2, aiPlayers: Color[] = [], aiProviders: AiProviders = {}, aiProfileIds: AiProfileIds = {}, opening?: OpeningPosition) {
+export function startLocal(playerCount = 2, aiPlayers: Color[] = [], aiProviders: AiProviders = {}, aiProfileIds: AiProfileIds = {}, opening?: OpeningPosition, aiNnConfigs: AiNnConfigs = {}) {
   checkOpening(opening, seatColors(playerCount), aiPlayers)
   state.mode = 'local'
   state.myColor = null
@@ -315,6 +393,7 @@ export function startLocal(playerCount = 2, aiPlayers: Color[] = [], aiProviders
   setAiPlayers(aiPlayers)
   setAiProviders(aiProviders)
   setAiProfileIds(aiProfileIds)
+  setAiNnConfigs(aiNnConfigs)
   state.sessionId = crypto.randomUUID()
   resetBoard(opening)
   state.recording = markRaw(newRecording(serialize()))
@@ -322,7 +401,7 @@ export function startLocal(playerCount = 2, aiPlayers: Color[] = [], aiProviders
 }
 
 /** 联机模式下所有人到齐，开始布置 */
-export function startOnline(myColor: Color, roomCode: string, players: Color[], aiPlayers: Color[] = [], aiProviders: AiProviders = {}, aiProfileIds: AiProfileIds = {}, opening?: OpeningPosition) {
+export function startOnline(myColor: Color, roomCode: string, players: Color[], aiPlayers: Color[] = [], aiProviders: AiProviders = {}, aiProfileIds: AiProfileIds = {}, opening?: OpeningPosition, aiNnConfigs: AiNnConfigs = {}) {
   checkOpening(opening, players, aiPlayers)
   state.mode = 'online'
   state.myColor = myColor
@@ -332,6 +411,7 @@ export function startOnline(myColor: Color, roomCode: string, players: Color[], 
   setAiPlayers(aiPlayers)
   setAiProviders(aiProviders)
   setAiProfileIds(aiProfileIds)
+  setAiNnConfigs(aiNnConfigs)
   state.sessionId = crypto.randomUUID()
   resetBoard(opening)
   // Guests adopt the host's initial snapshot, including the shared round ID.
@@ -352,6 +432,7 @@ export function toLobby() {
   state.aiPlayers = []
   state.aiProviders = {}
   state.aiProfileIds = {}
+  state.aiNnConfigs = {}
   state.aiPaused = false
   state.phase = 'lobby'
   for (const c of Object.keys(state.homes) as Color[]) delete state.homes[c]
@@ -361,6 +442,7 @@ export function toLobby() {
   state.victoryReplay = null
   state.dead = []
   state.lastMove = null
+  state.moves = []
   state.sessionId = ''
   clearHistory()
   state.laserAllowed = false
@@ -492,7 +574,12 @@ function validate(a: Action, local: boolean, ai = false): boolean {
       a.profileId.length > 0 && a.profileId.length <= 100 && (state.mode === 'local' || a.color === state.players[0])
   }
   if (a.kind === 'ai-provider-setting') {
-    return state.phase !== 'lobby' && isAiPlayer(a.target) && ['wasm', 'dsh'].includes(a.provider) &&
+    return state.phase !== 'lobby' && isAiPlayer(a.target) && ['wasm', 'dsh', 'nn'].includes(a.provider) &&
+      (state.mode === 'local' || a.color === state.players[0])
+  }
+  if (a.kind === 'ai-nn-setting') {
+    return state.phase !== 'lobby' && isAiPlayer(a.target) && aiProviderFor(a.target) === 'nn' &&
+      Object.keys(sanitizeAiNnConfigs({ [a.target]: a.nn })).length > 0 &&
       (state.mode === 'local' || a.color === state.players[0])
   }
   if (a.kind === 'laser-setting' || a.kind === 'undo-setting') {
@@ -590,6 +677,10 @@ function applyAction(a: Action, at: number) {
     state.aiProviders[a.target] = a.provider
     return
   }
+  if (a.kind === 'ai-nn-setting') {
+    state.aiNnConfigs[a.target] = sanitizeAiNnConfigs({ [a.target]: a.nn })[a.target]!
+    return
+  }
   if (a.kind === 'laser-setting') {
     state.laserAllowed = a.allow
     return
@@ -633,6 +724,7 @@ function applyAction(a: Action, at: number) {
     // 恢复以动作携带的帧为准，刷新后栈深度不一致也不会分叉
     if (moveHistory.length) moveHistory.pop()
     undoDepth.value = moveHistory.length
+    state.moves.pop()
     const f = a.frame
     state.edges.clear()
     for (const [k, v] of f.edges) state.edges.set(k, v)
@@ -680,9 +772,11 @@ function applyAction(a: Action, at: number) {
   if (a.kind === 'edge') {
     state.edges.set(a.id, { color: a.color })
     state.lastMove = { kind: 'edge', id: a.id, color: a.color, ...(aiAnalysis ? { aiAnalysis } : {}) }
+    state.moves.push({ kind: 'edge', id: a.id, color: a.color })
   } else {
     state.diags.set(`${a.x},${a.y}`, { color: a.color, ori: a.ori })
     state.lastMove = { kind: 'diag', key: `${a.x},${a.y}`, color: a.color, ...(aiAnalysis ? { aiAnalysis } : {}) }
+    state.moves.push({ kind: 'diag', x: a.x, y: a.y, ori: a.ori, color: a.color })
   }
   if (state.phase === 'play') {
     state.current = nextAlive(a.color)
@@ -761,6 +855,10 @@ export interface Snapshot {
   aiProviders?: AiProviders
   aiProfileIds?: AiProfileIds
   aiBudgetMs?: number
+  /** nn 座位的模型配置；缺省视为无 nn 座位 */
+  aiNnConfigs?: AiNnConfigs
+  /** 旧格式存档的引擎配置；加载时迁移进 aiProviders/aiNnConfigs */
+  aiEngines?: unknown
   aiPaused?: boolean
   phase: Phase
   homes: Partial<Record<Color, Home>>
@@ -783,6 +881,8 @@ export interface Snapshot {
   timedOut?: Color[]
   /** 上一步放置的镜子；缺省视为无 */
   lastMove?: LastMove
+  /** 落子顺序记录（复盘用）；缺省视为无 */
+  moves?: MoveRecord[]
   /** 对局会话 id（/s/<id>）；无此字段的存档视为旧格式，加载时直接忽略 */
   sessionId?: string
   recording?: RecordedGame
@@ -800,6 +900,7 @@ export function serialize(): Snapshot {
     aiProviders: { ...state.aiProviders },
     aiProfileIds: { ...state.aiProfileIds },
     aiBudgetMs: state.aiBudgetMs,
+    aiNnConfigs: { ...state.aiNnConfigs },
     aiPaused: state.aiPaused,
     phase: state.phase,
     homes: { ...state.homes },
@@ -818,6 +919,7 @@ export function serialize(): Snapshot {
     clock: serializeClock(),
     timedOut: [...state.timedOut],
     lastMove: state.lastMove,
+    moves: [...state.moves],
     sessionId: state.sessionId,
     recording: state.recording ?? undefined,
     size: state.size,
@@ -840,8 +942,10 @@ export function applySnapshot(s: Snapshot, preserveIdentity = false) {
   }
   state.players = s.players?.length ? s.players : seatColors(2)
   setAiPlayers(s.aiPlayers ?? [])
-  setAiProviders(s.aiProviders)
+  const legacy = sanitizeLegacyAiEngines(s.aiEngines)
+  setAiProviders({ ...legacy.providers, ...s.aiProviders })
   setAiProfileIds(s.aiProfileIds)
+  setAiNnConfigs({ ...legacy.nnConfigs, ...sanitizeAiNnConfigs(s.aiNnConfigs) })
   state.aiBudgetMs = [3000, 10000, 30000].includes(s.aiBudgetMs ?? 0) ? s.aiBudgetMs! : 10000
   state.aiPaused = s.aiPaused ?? false
   state.phase = s.phase
@@ -868,6 +972,7 @@ export function applySnapshot(s: Snapshot, preserveIdentity = false) {
   // 联机恢复先暂停在最近保存的剩余时间，待房主确认所有人重连后再启动。
   if (!preserveIdentity && s.mode === 'online') state.clock.runningSince = null
   state.lastMove = s.lastMove ?? null
+  state.moves = s.moves ? [...s.moves] : []
   clearHistory() // 历史栈不随快照走，恢复后从空栈重新累计
   state.size = s.size
   state.recording = s.phase === 'lobby' ? null : markRaw(s.recording ? alignRecording(s.recording, serialize()) : newRecording(serialize(), { id: s.sessionId, complete: false }))

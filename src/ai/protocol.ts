@@ -54,6 +54,12 @@ export interface AiForcingProof {
 }
 export interface AiResponse { action: AiAction | null; stats?: AiStats; error?: string }
 
+/**
+ * NN 引擎 MCTS 计算量控制：{type:'sims'} 跑满指定模拟数（150 为训练/评测标准档）；
+ * 缺省或 {type:'time'} = 时间模式，跟全局 aiBudgetMs（旧存档/旧联机消息无此字段）。
+ */
+export type NnSearchLimit = { type: 'time' } | { type: 'sims'; sims: number }
+
 /** Only the explanation for the accepted move is shared with other players and saved. */
 export interface AiMoveAnalysis { elapsedMs: number; reason?: string }
 export function toAiMoveAnalysis(value: unknown): AiMoveAnalysis | undefined {

@@ -1,0 +1,62 @@
+[
+  {
+    "id": "lightchess-6x6-vitm-gen32",
+    "name": "光镜 6×6 ViT-M gen32",
+    "file": "lightchess_6x6_vitm_pt_dd_gen32.onnx",
+    "dataFile": "lightchess_6x6_vitm_pt_dd_gen32.onnx.data",
+    "boardSize": 6,
+    "featureVersion": "dirlight30-v1",
+    "channels": 30,
+    "elo": 1661,
+    "recommended": false,
+    "eloNote": "Elo 1661 为 MCTS sims100 评测结果；policy-only（不搜索）更弱。浏览器内 MCTS 强度随每步思考时间增长。"
+  },
+  {
+    "id": "lightchess-6x6-eqv-gen32",
+    "name": "光镜 6×6 等变 gen32",
+    "file": "lightchess_6x6_eqv_ext_gen32.onnx",
+    "dataFile": "lightchess_6x6_eqv_ext_gen32.onnx.data",
+    "boardSize": 6,
+    "featureVersion": "dirlight30-v1",
+    "channels": 30,
+    "elo": 1672,
+    "recommended": true,
+    "eloNote": "Elo 1672 为 MCTS sims100 评测结果（6×6 神经网络榜首）；policy-only（不搜索）更弱。浏览器内 MCTS 强度随每步思考时间增长。"
+  },
+  {
+    "id": "lightchess-8x8-transfer-gen16",
+    "name": "光镜 8×8 迁移 gen16",
+    "file": "lightchess_8x8_transfer_gen16.onnx",
+    "dataFile": "lightchess_8x8_transfer_gen16.onnx.data",
+    "boardSize": 8,
+    "featureVersion": "dirlight30-v1",
+    "channels": 30,
+    "elo": 1655,
+    "recommended": false,
+    "eloNote": "Elo 1655 为 MCTS sims100 评测结果；policy-only（不搜索）更弱。浏览器内 MCTS 强度随每步思考时间增长。"
+  },
+  {
+    "id": "lightchess-8x8-vitm-gen16",
+    "name": "光镜 8×8 ViT-M gen16",
+    "file": "lightchess_8x8_vitm_pt_gen16.onnx",
+    "dataFile": "lightchess_8x8_vitm_pt_gen16.onnx.data",
+    "boardSize": 8,
+    "featureVersion": "dirlight30-v1",
+    "channels": 30,
+    "elo": 1925,
+    "recommended": false,
+    "eloNote": "Elo 1925 为 MCTS sims100 评测结果（收敛修正后复评）；policy-only（不搜索）更弱。浏览器内 MCTS 强度随每步思考时间增长。"
+  },
+  {
+    "id": "lightchess-8x8-bc-gen0",
+    "name": "光镜 8×8 BC gen0（教师蒸馏）",
+    "file": "lightchess_8x8_bc_gen0.onnx",
+    "dataFile": "lightchess_8x8_bc_gen0.onnx.data",
+    "boardSize": 8,
+    "featureVersion": "dirlight30-v1",
+    "channels": 30,
+    "elo": 2050,
+    "recommended": true,
+    "eloNote": "Elo ~2050 为估算值：MCTS sims100 96 局对 8×8 ViT-M gen32 胜率 66.7%、对 self-play gen24 胜率 91.7%。教师轨迹蒸馏（BC）模型，未经过 self-play。浏览器内 MCTS 强度随每步思考时间增长。"
+  }
+]
