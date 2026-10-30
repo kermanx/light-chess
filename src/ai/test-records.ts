@@ -75,6 +75,9 @@ export async function loadTestGame(id: string): Promise<TestGame | undefined> {
 export async function countTestGames(): Promise<number> {
   return value((await db()).transaction('games').objectStore('games').count())
 }
+export async function listTestGames(): Promise<TestGame[]> {
+  return value((await db()).transaction('games').objectStore('games').getAll())
+}
 export async function readTestEvents(gameId?: string): Promise<TestEvent[]> {
   const store = (await db()).transaction('events').objectStore('events')
   const rows: StoredEvent[] = await value(gameId

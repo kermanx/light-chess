@@ -260,7 +260,7 @@ onMounted(() => {
           <span class="card-desc">输入房间号入座</span>
         </button>
       </div>
-      <a class="btn-plain replay-entry" :href="`${appBase()}replays`">对局回放 · DSH vs 规则 AI</a>
+      <a class="btn-plain replay-entry" :href="`${appBase()}replays`">对局记录</a>
       <DshSettings />
     </div>
 

@@ -1,16 +1,16 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { PALETTE, simulate, type Color, type Pt } from '../game'
-import type { ReplayFrame } from '../replay/model'
+import type { PlaybackFrame } from '../replay/recording'
 
-const props = defineProps<{ frame: ReplayFrame; visibleBeams: Color[] }>()
+const props = defineProps<{ frame: PlaybackFrame; visibleBeams: Color[] }>()
 const colors = Object.fromEntries(PALETTE.map(p => [p.id, p.hex]))
 const size = computed(() => props.frame.board.size)
 const pad = 30, spacing = 28
 const u = (v: number) => pad + v * spacing
 const extent = computed(() => pad * 2 + size.value * spacing)
 const dots = computed(() => Array.from({ length: (size.value + 1) ** 2 }, (_, i) => ({ x: i % (size.value + 1), y: Math.floor(i / (size.value + 1)) })))
-const beams = computed(() => props.visibleBeams.map(color => ({ color, ...simulate(props.frame.board, color) })))
+const beams = computed(() => props.visibleBeams.filter(c => !props.frame.dead?.includes(c)).map(color => ({ color, ...simulate(props.frame.board, color) })))
 const last = computed(() => props.frame.move?.action)
 const segments = (points: Pt[]) => points.map(p => `${u(p.x)},${u(p.y)}`).join(' ')
 function edge(id: string) {
@@ -51,6 +51,7 @@ const lastDiag = (key: string) => last.value?.kind === 'diag' && `${last.value.x
       </g>
       <template v-for="(home, color) in frame.board.homes" :key="color">
         <circle v-if="home" :cx="u(home.x + 0.5)" :cy="u(home.y + 0.5)" r="5.8" :fill="colors[color]" />
+        <text v-if="home && frame.dead?.includes(color)" :x="u(home.x + 0.5)" :y="u(home.y + 0.5) + 4" text-anchor="middle" fill="white" font-size="13" :data-eliminated="color">×</text>
       </template>
     </svg>
   </div>

@@ -86,6 +86,9 @@ try {
   await status(host, '你的回合')
   await guest.waitForFunction(() => JSON.parse(sessionStorage.getItem('light-chess:save')).current === 'blue')
   const hostSave = await saved(host), guestSave = await saved(guest)
+  assert.equal(hostSave.recording.id, guestSave.recording.id, 'peers share one recording ID')
+  assert.deepEqual(hostSave.recording.events.map(e => e.kind), guestSave.recording.events.map(e => e.kind))
+  assert.equal(hostSave.recording.events.filter(e => e.action).length, 3, 'accepted human and AI moves recorded exactly once')
   assert.deepEqual(hostSave.edges, guestSave.edges)
   assert(!hostSave.edges.some(([id]) => id === 'h:11:14'))
   assert.equal(hostSave.edges.find(([id]) => id === 'h:12:14')[1].color, 'yellow')
@@ -169,8 +172,18 @@ try {
   assert.deepEqual((await saved(host)).edges, (await saved(guest)).edges)
   await host.getByLabel('蓝方 AI 实现', { exact: true }).selectOption('dsh')
   await guest.waitForFunction(() => JSON.parse(sessionStorage.getItem('light-chess:save')).aiProviders.blue === 'dsh')
+  // A long history must survive the relay's encrypted 512 KiB packet cap.
+  await host.evaluate(async () => {
+    const { state } = await import('/src/store.ts')
+    const recording = JSON.parse(JSON.stringify(state.recording))
+    recording.events[0].label += '长记录'.repeat(100_000)
+    state.recording = recording
+  })
   await guest.reload()
   await status(guest, '你的回合')
+  await guest.waitForFunction(() => JSON.parse(sessionStorage.getItem('light-chess:save')).recording?.events[0]?.label.length > 300_000)
+  assert.equal((await saved(host)).recording.id, (await saved(guest)).recording.id)
+  assert.equal((await saved(host)).recording.events.length, (await saved(guest)).recording.events.length)
   await host.reload()
   await status(host, '等待红方')
   await status(guest, '你的回合')
@@ -184,6 +197,8 @@ try {
   await status(host, '等待真人玩家布置基地')
   await status(guest, '轮到你布置')
   assert.deepEqual((await saved(guest)).aiPlayers, ['blue', 'yellow'])
+  assert.equal((await saved(host)).recording.id, (await saved(guest)).recording.id)
+  assert.equal((await saved(guest)).recording.events.length, 0, 'restarted round begins a new shared timeline')
   console.log('ok: AI host counts once, waits for human seats, runs AI moves, and preserves provider/authority through both reloads and restart')
 
   await guest.getByRole('button', { name: '回到大厅' }).click()

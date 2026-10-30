@@ -2,6 +2,8 @@ import { reactive, watch } from 'vue'
 import { defaultClockSettings, freshClock } from '../clock'
 import { edgeOf, type Color, type Dir, type Home, type Mirror } from '../game'
 import { aiProviderFor, applySnapshot, onActionApplied, serialize, setGamePersistenceEnabled, state, toLobby, type Snapshot } from '../store'
+import { newRecording } from '../replay/recording'
+import { loadRecording } from '../replay/archive'
 import { onAiSearch } from './telemetry'
 import { acknowledgeTestEvents, countTestGames, loadTestGame, readTestEvents, saveTestEvent, testEventLineage, type TestEvent, type TestGame } from './test-records'
 
@@ -40,10 +42,12 @@ function updatePending() { aiTest.pendingCount = pending.size }
 
 function record(type: string, detail: unknown, snapshot = serialize()) {
   if (!aiTest.active || !game) return
-  const event: TestEvent = copy({
+  // The test event stream already contains before/after boards. Avoid copying
+  // the entire growing replay into every diagnostic event (quadratic storage).
+  const event: TestEvent = JSON.parse(JSON.stringify({
     v: 1, id: crypto.randomUUID(), gameId: game.id, parentId: game.headId || null, sequence: game.sequence + 1,
     tabId: tabId ??= crypto.randomUUID(), at: new Date().toISOString(), type, detail,
-  })
+  }, (key, value) => key === 'recording' ? undefined : value))
   game = copy({ ...game, headId: event.id, sequence: event.sequence, moveCount: aiTest.moveCount, snapshot })
   const savedGame = game
   memoryEvents.set(event.id, event)
@@ -156,6 +160,7 @@ export function startAiTestGame() {
   setGamePersistenceEnabled(false)
   const id = crypto.randomUUID()
   const snapshot = initialSnapshot(id)
+  snapshot.recording = newRecording(snapshot, { id })
   aiTest.active = true
   aiTest.gameId = id
   aiTest.moveCount = 0
@@ -184,7 +189,9 @@ export async function enterAiTestMode() {
       aiTest.active = true
       aiTest.gameId = saved.id
       aiTest.moveCount = saved.moveCount
-      applySnapshot(saved.snapshot)
+      const recording = saved.snapshot.recording ?? await loadRecording(saved.id).catch(() => undefined)
+      if (token !== navigation || !isAiTestRoute()) return
+      applySnapshot({ ...saved.snapshot, recording })
       state.peerLeft = false
       remember(saved.id)
       history.replaceState(null, '', `${appBase()}ai-test/${saved.id}`)

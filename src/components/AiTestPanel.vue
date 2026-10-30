@@ -60,7 +60,7 @@ const storageText = computed(() => {
       <button class="btn-plain" :disabled="!aiTest.gameId" @click="exportAiTestGame()">导出当前记录</button>
     </div>
     <p class="archive-hint">新对局会保留旧记录。</p>
-    <a :href="`${appBase()}replays`">观看 DSH vs 规则 AI 回放</a>
+    <a :href="`${appBase()}replays`">查看所有对局记录</a>
   </section>
 </template>
 
