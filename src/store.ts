@@ -1,4 +1,5 @@
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, markRaw, reactive, ref, watch } from 'vue'
+import { alignRecording, appendRecording, newRecording, type RecordedGame } from './replay/recording'
 import { toAiMoveAnalysis, type AiMoveAnalysis, type NnSearchLimit } from './ai/protocol'
 import type { AiProfileIds, AiProvider, AiProviders } from './ai/providers'
 import { defaultOpeningSettings, normalizeOpeningSettings, validOpening, type OpeningPosition, type OpeningSettings } from './opening'
@@ -81,7 +82,7 @@ export type Action =
   | { kind: 'boundary-setting'; color: Color; enabled: boolean }
   | { kind: 'clock-setting'; color: Color; settings: ClockSettings }
   | { kind: 'timeout'; color: Color; turn: number }
-  | { kind: 'restart'; color: Color; opening?: OpeningPosition }
+  | { kind: 'restart'; color: Color; opening?: OpeningPosition; replayId?: string }
 
 export const state = reactive({
   mode: null as 'local' | 'online' | null,
@@ -132,6 +133,8 @@ export const state = reactive({
   moves: [] as MoveRecord[],
   /** 本局会话 id（对局 URL /s/<id> 与存档对应，浏览器后退/前进恢复用） */
   sessionId: '',
+  /** One immutable, compact timeline per round, shared with peers on synchronization. */
+  recording: null as RecordedGame | null,
   /** 棋盘格数（联机由房主调整） */
   size: DEFAULT_SIZE,
 })
@@ -393,6 +396,7 @@ export function startLocal(playerCount = 2, aiPlayers: Color[] = [], aiProviders
   setAiNnConfigs(aiNnConfigs)
   state.sessionId = crypto.randomUUID()
   resetBoard(opening)
+  state.recording = markRaw(newRecording(serialize()))
   pushSessionUrl()
 }
 
@@ -410,11 +414,14 @@ export function startOnline(myColor: Color, roomCode: string, players: Color[], 
   setAiNnConfigs(aiNnConfigs)
   state.sessionId = crypto.randomUUID()
   resetBoard(opening)
+  // Guests adopt the host's initial snapshot, including the shared round ID.
+  state.recording = myColor === players[0] ? markRaw(newRecording(serialize())) : null
   pushSessionUrl()
 }
 
 /** 回大厅，清空一切（存档保留在存储里，浏览器前进仍可恢复对局） */
 export function toLobby() {
+  state.recording = null
   state.positionRevision++
   state.mode = null
   state.myColor = null
@@ -616,10 +623,18 @@ function validate(a: Action, local: boolean, ai = false): boolean {
     !wouldEncloseDiag(a.x, a.y, a.ori, a.color)
 }
 
-function apply(a: Action, at = Date.now()) {
-  const before = actionObservers.size ? serialize() : null
+function apply(a: Action, at = Date.now(), clock?: ClockSync) {
+  const before = serialize()
   applyAction(a, at)
-  if (before) {
+  if (clock) applyClockSync(clock, true)
+  const after = serialize()
+  if (a.kind === 'restart') {
+    state.recording = markRaw(newRecording(after, { id: a.replayId, at: new Date(at).toISOString() }))
+  } else {
+    const recording = state.recording ?? newRecording(before, { complete: false })
+    state.recording = markRaw(appendRecording(recording, before, after, a, new Date(at).toISOString()))
+  }
+  if (actionObservers.size) {
     const after = serialize()
     for (const observer of actionObservers) {
       try { observer(a, before, after) } catch (error) { console.error('Action recorder failed', error) }
@@ -782,6 +797,7 @@ export function setSender(fn: ((a: Action) => void) | null, deferLocal = false) 
 export function dispatch(a: Action) {
   if ((a.kind === 'edge' || a.kind === 'diag' || a.kind === 'undo' || a.kind === 'ai-resume' || a.kind === 'ai-pause') && tickClock()) return
   if (!validate(a, true)) return
+  if (a.kind === 'restart') a = { ...a, replayId: crypto.randomUUID() }
   // 中继客人的动作由房主确认后通过 applyRemote 应用，避免刷新/重连时局面分叉。
   if (state.mode === 'online' && (waitForHost || ((state.clockSettings.enabled || state.aiPlayers.length > 0) && !isClockAuthority()))) {
     sender?.(a)
@@ -805,8 +821,7 @@ export function dispatchAi(a: Action): boolean {
 export function applyRemote(a: Action, clock?: ClockSync) {
   if (isClockAuthority() && (a.kind === 'edge' || a.kind === 'diag' || a.kind === 'undo' || a.kind === 'ai-resume' || a.kind === 'ai-pause') && tickClock()) return false
   if (!validate(a, false)) return false
-  apply(a, clock?.at ?? Date.now())
-  if (clock) applyClockSync(clock, true)
+  apply(a, clock?.at ?? Date.now(), clock)
   return true
 }
 
@@ -870,6 +885,7 @@ export interface Snapshot {
   moves?: MoveRecord[]
   /** 对局会话 id（/s/<id>）；无此字段的存档视为旧格式，加载时直接忽略 */
   sessionId?: string
+  recording?: RecordedGame
   size: number
 }
 
@@ -905,6 +921,7 @@ export function serialize(): Snapshot {
     lastMove: state.lastMove,
     moves: [...state.moves],
     sessionId: state.sessionId,
+    recording: state.recording ?? undefined,
     size: state.size,
   }
 }
@@ -958,6 +975,7 @@ export function applySnapshot(s: Snapshot, preserveIdentity = false) {
   state.moves = s.moves ? [...s.moves] : []
   clearHistory() // 历史栈不随快照走，恢复后从空栈重新累计
   state.size = s.size
+  state.recording = s.phase === 'lobby' ? null : markRaw(s.recording ? alignRecording(s.recording, serialize()) : newRecording(serialize(), { id: s.sessionId, complete: false }))
 }
 
 const SAVE_KEY = 'light-chess:save'

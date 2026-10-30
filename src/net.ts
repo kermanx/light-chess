@@ -9,6 +9,7 @@ import { defaultRelayUrls as nostrRelayUrls, getRelaySockets as getRelaySocketsN
 import { seatColors, type Color } from './game'
 import { defaultClockSettings, type ClockSettings, type ClockSync } from './clock'
 import { joinRelayRoom, type RelayRoom } from './relay'
+import { snapshotChunks, SnapshotReceiver, type SnapshotChunk } from './replay/transport'
 import {
   applyRemote,
   applyClockSync,
@@ -216,7 +217,12 @@ function trackRelays(code: string) {
 const inGame = () => state.mode === 'online' && state.phase !== 'lobby'
 
 const send = (msg: Msg, target?: string) => {
-  if (relayRoom) return relayRoom.send(msg, target)
+  if (relayRoom) {
+    const chunks = msg.t === 'sync' || msg.t === 'start' ? snapshotChunks(msg) : null
+    if (chunks) { for (const chunk of chunks) relayRoom.send(chunk, target) }
+    else relayRoom.send(msg, target)
+    return
+  }
   if (!action) return
   void (target ? action.send(msg, { target }) : action.send(msg))
 }
@@ -265,7 +271,7 @@ function hostStartIfReady(): boolean {
   started = true
   const aiPlayers = [...state.aiPlayers]
   startOnline(state.myColor!, state.roomCode, state.players, aiPlayers, state.aiProviders, state.aiProfileIds, preparedOpening, state.aiNnConfigs)
-  send({ t: 'start', players: state.players.length, snapshot: preparedOpening ? serialize() : undefined, settings: {
+  send({ t: 'start', players: state.players.length, snapshot: serialize(), settings: {
     size: state.size, laserAllowed: state.laserAllowed, allowUndo: state.allowUndo,
     boundaryReflects: state.boundaryReflects, clockSettings: { ...state.clockSettings },
     aiPlayers, aiProviders: { ...state.aiProviders }, aiProfileIds: { ...state.aiProfileIds }, aiBudgetMs: state.aiBudgetMs, aiNnConfigs: { ...state.aiNnConfigs },
@@ -426,8 +432,15 @@ async function openRoom(code: string) {
   const sig = signalingOf(code)
   if (sig === 'relay') {
     relayRoom = await joinRelayRoom(APP_ID, `room-${code}`)
+    const receiver = new SnapshotReceiver()
     relayRoom.onMessage = (msg, peerId) => {
-      try { handle(msg as Msg, peerId) } catch { /* 忽略异常消息 */ }
+      try {
+        if ((msg as SnapshotChunk)?.t === 'snapshot-chunk') {
+          if (isHost || peerId !== hostPeerId) return
+          const complete = receiver.receive(msg as SnapshotChunk) as Msg | undefined
+          if (complete && (complete.t === 'sync' || complete.t === 'start')) handle(complete, peerId)
+        } else handle(msg as Msg, peerId)
+      } catch { receiver.clear() /* 忽略异常消息 */ }
     }
     relayRoom.onPeerJoin = (peerId) => {
       // 只向新对端打招呼；发现另一个客人不能触发房主重复发送快照。

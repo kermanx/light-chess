@@ -8,12 +8,16 @@ import { enterAiTestMode, exitAiTestMode, isAiTestRoute } from './ai/test-sessio
 import { netClose, netRejoin } from './net'
 import { applySnapshot, broadcastClock, loadSave, persistGame, setGamePersistenceEnabled, state, tickClock, toLobby, type Snapshot } from './store'
 import { replayRoute, syncReplayRoute } from './replay/navigation'
+import { loadRecording, migrateSavedGames, startReplayArchive } from './replay/archive'
 
 /** 当前 URL 中的对局会话 id（/s/<id>），不在对局路径下为 null */
 const sessionMatch = () => location.pathname.match(/\/s\/([^/]+?)\/?$/)?.[1] ?? null
 
 /** 用存档恢复对局；联机还原局面后尝试重连原房间 */
-function restore(save: Snapshot) {
+async function restore(save: Snapshot) {
+  if (!save.recording && save.sessionId) {
+    try { save = { ...save, recording: await loadRecording(save.sessionId) } } catch { /* Restore remains usable if archive storage is unavailable. */ }
+  }
   applySnapshot(save)
   if (save.mode === 'online') {
     // 其他人是否还在要等重连结果，先按掉线处理
@@ -25,12 +29,14 @@ function restore(save: Snapshot) {
 // 刷新恢复：URL 的 /s/<id> 与存档 sessionId 对上才恢复（旧格式存档已被 loadSave 忽略）
 async function boot() {
   startDshTrajectoryCapture()
+  startReplayArchive()
+  await migrateSavedGames()
   if (replayRoute.value) setGamePersistenceEnabled(false)
   else if (isAiTestRoute()) await enterAiTestMode()
   else {
     const save = loadSave()
     const sid = sessionMatch()
-    if (save && sid && save.sessionId === sid) restore(save)
+    if (save && sid && save.sessionId === sid) await restore(save)
   }
   createApp(App).mount('#app')
   startAiController()
@@ -73,7 +79,7 @@ addEventListener('popstate', async () => {
   const id = sessionMatch()
   const s = loadSave()
   if (id && s && s.sessionId === id && state.sessionId !== id) {
-    restore(s)
+    await restore(s)
     return
   }
   if (!id && state.phase !== 'lobby') {

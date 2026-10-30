@@ -14,6 +14,8 @@ import { aiTest, leaveAiTestMode, startAiTestGame } from '../ai/test-session'
 import type { ClockSettings as ClockConfig } from '../clock'
 import { aiStatus, aiTurnColor, cancelAi, retryAi } from '../ai/controller'
 import { netClose } from '../net'
+import { archiveStatus, queueRecording } from '../replay/archive'
+import { appBase } from '../replay/navigation'
 import { prepareOpening, openingProgressLabel } from '../prepare-opening'
 import {
   edgeMid,
@@ -62,6 +64,13 @@ const u = (v: number) => PAD + v * S
 const COLORS = Object.fromEntries(PALETTE.map((p) => [p.id, p.hex])) as Record<Color, string>
 const name = (c: Color) => `${PALETTE.find((p) => p.id === c)?.name ?? c}方`
 const thinkingTime = (ms: number) => ms < 1 ? '不足 1 毫秒' : ms < 1000 ? `${Math.round(ms)} 毫秒` : `${(ms / 1000).toFixed(1)} 秒`
+function downloadRecording() {
+  if (!state.recording) return
+  const url = URL.createObjectURL(new Blob([JSON.stringify(state.recording, null, 2)], { type: 'application/json' }))
+  const link = document.createElement('a')
+  link.href = url; link.download = `light-chess-replay-${state.recording.id}.json`; link.click()
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
 const hasDsh = computed(() => state.aiPlayers.some(c => aiProviderFor(c) === 'dsh'))
 const DshTrajectoryPanel = defineAsyncComponent(() => import('../components/DshTrajectoryPanel.vue'))
 const trajectoryOpen = ref(false)
@@ -1019,6 +1028,10 @@ const statusText = computed(() => {
       </div>
       <p v-if="openingProgress" role="status">{{ openingProgress }}</p>
       <p v-if="openingError" class="ai-error" role="alert">{{ openingError }}</p>
+      <a v-if="state.recording" class="btn-plain" :href="`${appBase()}replay/${state.recording.id}`" target="_blank" rel="noopener">回放本局</a>
+      <a class="btn-plain" :href="`${appBase()}replays`" target="_blank" rel="noopener">对局记录</a>
+      <span v-if="state.recording && !archiveStatus.error" class="laser-tag">{{ archiveStatus.pending ? '正在保存记录…' : '对局记录已自动保存到本机' }}</span>
+      <div v-if="archiveStatus.error" class="ai-error" role="alert">{{ archiveStatus.error }} <button class="btn-plain" @click="downloadRecording">下载本局记录</button> <button v-if="state.recording" class="btn-plain" @click="queueRecording(state.recording)">重试保存</button></div>
       <button class="btn-plain" @click="leaveGame">回到大厅</button>
     </div>
 

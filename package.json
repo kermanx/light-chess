@@ -23,7 +23,7 @@
     "test:dsh-trajectory": "node scripts/dsh-trajectory-check.mjs",
     "test:dsh-activity": "npx tsx scripts/dsh-activity-check.ts",
     "test:dsh-retry": "node scripts/dsh-retry-check.mjs",
-    "test:replay": "npm run build && node scripts/replay-check.mjs",
+    "test:replay": "npx tsx scripts/recording-check.ts && npm run build && node scripts/replay-check.mjs",
     "arena": "node scripts/dsh-arena.mjs",
     "test:dsh-arena": "node scripts/dsh-arena-check.mjs && node scripts/dsh-preset-check.mjs"
   },
