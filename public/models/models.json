@@ -20,8 +20,20 @@
     "featureVersion": "dirlight30-v1",
     "channels": 30,
     "elo": 1672,
-    "recommended": true,
+    "recommended": false,
     "eloNote": "Elo 1672 为 MCTS sims100 评测结果（6×6 神经网络榜首）；policy-only（不搜索）更弱。浏览器内 MCTS 强度随每步思考时间增长。"
+  },
+  {
+    "id": "lightchess-6x6-reh25-prune-gen16",
+    "name": "光镜 6×6 合并臂 gen16（剪枝+rehearsal）",
+    "file": "lightchess_6x6_reh25_prune_gen16.onnx",
+    "dataFile": "lightchess_6x6_reh25_prune_gen16.onnx.data",
+    "boardSize": 6,
+    "featureVersion": "dirlight30-v1",
+    "channels": 30,
+    "elo": 1730,
+    "recommended": true,
+    "eloNote": "对 eqv_ext/gen32 胜率 58.3%（96局 sims100，剪枝 MCTS），6×6 NN 榜首。浏览器内 MCTS 强度随每步思考时间增长。"
   },
   {
     "id": "lightchess-8x8-transfer-gen16",
@@ -44,8 +56,8 @@
     "featureVersion": "dirlight30-v1",
     "channels": 30,
     "elo": 1925,
-    "recommended": false,
-    "eloNote": "Elo 1925 为 MCTS sims100 评测结果（收敛修正后复评）；policy-only（不搜索）更弱。浏览器内 MCTS 强度随每步思考时间增长。"
+    "recommended": true,
+    "eloNote": "Elo 1925 为 MCTS sims100 评测结果（收敛修正后复评）；剪枝 MCTS 口径下 0.573 胜 reh25/gen13、0.635 胜 bc/gen0，为 8×8 榜首。policy-only（不搜索）更弱。浏览器内 MCTS 强度随每步思考时间增长。"
   },
   {
     "id": "lightchess-8x8-bc-gen0",
@@ -56,7 +68,7 @@
     "featureVersion": "dirlight30-v1",
     "channels": 30,
     "elo": 2050,
-    "recommended": true,
-    "eloNote": "Elo ~2050 为估算值：MCTS sims100 96 局对 8×8 ViT-M gen32 胜率 66.7%、对 self-play gen24 胜率 91.7%。教师轨迹蒸馏（BC）模型，未经过 self-play。浏览器内 MCTS 强度随每步思考时间增长。"
+    "recommended": false,
+    "eloNote": "Elo ~2050 为估算值：MCTS sims100 96 局对 8×8 ViT-M gen32 胜率 66.7%、对 self-play gen24 胜率 91.7%。教师轨迹蒸馏（BC）模型，未经过 self-play。剪枝口径下 0.365 负于 vitm_pt/gen16。浏览器内 MCTS 强度随每步思考时间增长。"
   }
 ]
