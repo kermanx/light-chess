@@ -32,8 +32,20 @@
     "featureVersion": "dirlight30-v1",
     "channels": 30,
     "elo": 1730,
-    "recommended": true,
+    "recommended": false,
     "eloNote": "对 eqv_ext/gen32 胜率 58.3%（96局 sims100，剪枝 MCTS），6×6 NN 榜首。浏览器内 MCTS 强度随每步思考时间增长。"
+  },
+  {
+    "id": "lightchess-6x6-reh25-prune2-gen16",
+    "name": "光镜 6×6 合并臂 gen32（二段续训）",
+    "file": "lightchess_6x6_reh25_prune2_gen16.onnx",
+    "dataFile": "lightchess_6x6_reh25_prune2_gen16.onnx.data",
+    "boardSize": 6,
+    "featureVersion": "dirlight30-v1",
+    "channels": 30,
+    "elo": 1790,
+    "recommended": true,
+    "eloNote": "Elo 1790 为估算值：对 reh25_prune/gen16 胜率 70.3%（64 局 sims100，剪枝 MCTS），6×6 NN 榜首。浏览器内 MCTS 强度随每步思考时间增长。"
   },
   {
     "id": "lightchess-8x8-transfer-gen16",
