@@ -68,8 +68,20 @@
     "featureVersion": "dirlight30-v1",
     "channels": 30,
     "elo": 1925,
-    "recommended": true,
+    "recommended": false,
     "eloNote": "Elo 1925 为 MCTS sims100 评测结果（收敛修正后复评）；剪枝 MCTS 口径下 0.573 胜 reh25/gen13、0.635 胜 bc/gen0，为 8×8 榜首。policy-only（不搜索）更弱。浏览器内 MCTS 强度随每步思考时间增长。"
+  },
+  {
+    "id": "lightchess-8x8-king-gen16",
+    "name": "光镜 8×8 王中王 gen16（真王续训）",
+    "file": "lightchess_8x8_king_gen16.onnx",
+    "dataFile": "lightchess_8x8_king_gen16.onnx.data",
+    "boardSize": 8,
+    "featureVersion": "dirlight30-v1",
+    "channels": 30,
+    "elo": 2150,
+    "recommended": true,
+    "eloNote": "Elo 2150 为估算值：对 vitm_pt/gen16 胜率 73.4%（64 局 sims100，剪枝 MCTS），8×8 榜首。浏览器内 MCTS 强度随每步思考时间增长。"
   },
   {
     "id": "lightchess-8x8-bc-gen0",
