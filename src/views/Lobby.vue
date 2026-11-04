@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { MAX_PLAYERS, MIN_PLAYERS, PALETTE, seatColors, type Color } from '../game'
 import { announceRoom, watchRooms, type PublicRoom } from '../directory'
 import { isValidCode, netClose, netCreate, netJoin, signaling, type Signaling } from '../net'
-import { SIZE_MAX, SIZE_MIN, startLocal, state } from '../store'
+import { SIZE_MAX, SIZE_MIN, startLocal, state, type NnSeatConfig } from '../store'
+import { loadNnModels, nnModelsForSize, type NnModelInfo } from '../nn/models'
 import DshSettings from '../components/DshSettings.vue'
 import DshProfileSelect from '../components/DshProfileSelect.vue'
 import { defaultDshProfileId, readDshConfig } from '../ai/config'
@@ -46,14 +47,51 @@ const configuredSeats = computed(() => PALETTE.slice(0, count.value))
 const selectedAi = computed(() => configuredSeats.value.map(p => p.id).filter(c =>
   aiSeats.value.includes(c)))
 const hasDsh = computed(() => selectedAi.value.some(c => aiProviders.value[c] === 'dsh'))
-const hasWasm = computed(() => selectedAi.value.some(c => aiProviders.value[c] !== 'dsh'))
+const hasNnSeat = computed(() => selectedAi.value.some(c => aiProviders.value[c] === 'nn'))
+const hasWasm = computed(() => selectedAi.value.some(c => (aiProviders.value[c] ?? 'wasm') === 'wasm'))
 const hasAi = computed(() => selectedAi.value.length > 0)
 watch(hasAi, value => { if (value) state.boundaryReflects = true })
+
+// ---------- AI 座位引擎（内置 WASM 引擎 / DSH / 本地 NN 模型） ----------
+/** 本地 NN 模型目录（public/models/models.json） */
+const nnModels = ref<NnModelInfo[]>([])
+onMounted(() => { loadNnModels().then(l => (nnModels.value = l)).catch(() => { /* 目录不可用时只提供内置引擎 */ }) })
+/** 当前棋盘尺寸可用的 NN 模型 */
+const sizeModels = computed(() => nnModelsForSize(nnModels.value, state.size))
+/** 默认 NN 模型：推荐款优先，其次目录首个 */
+const defaultNnModel = computed(() => sizeModels.value.find(m => m.recommended) ?? sizeModels.value[0])
+/** NN 座位的模型选择（models.json 里的模型 id） */
+const seatEngine = reactive<Record<string, string>>({})
+/** NN 座位的「随机」开关：开启后按温度 0.5 采样，否则 argmax */
+const seatStochastic = reactive<Record<string, boolean>>({})
+/** NN 座位的计算量模式：'time'（默认，共用全局思考上限）或 'sims'（固定模拟数） */
+const seatLimitMode = reactive<Record<string, 'time' | 'sims'>>({})
+/** NN 座位 sims 定额档（默认 150 = 训练/评测标准） */
+const seatSims = reactive<Record<string, number>>({})
+const limitModeOf = (c: string) => seatLimitMode[c] ?? 'time'
+const simsOf = (c: string) => seatSims[c] ?? 150
+const nnModelOf = (c: string) => sizeModels.value.find(m => m.id === seatEngine[c]) ?? defaultNnModel.value
+const aiNnConfigs = computed(() => {
+  const out: Partial<Record<Color, NnSeatConfig>> = {}
+  for (const c of selectedAi.value) {
+    if (aiProviders.value[c] !== 'nn') continue
+    const model = nnModelOf(c)
+    if (!model) continue
+    out[c] = {
+      modelId: model.id, ...(seatStochastic[c] ? { stochastic: true } : {}),
+      ...(limitModeOf(c) === 'sims' ? { limit: { type: 'sims' as const, sims: simsOf(c) } } : {}),
+    }
+  }
+  return out
+})
+/** NN 模型只支持边界反射棋盘（与 WASM 引擎一致；有 AI 座位时边界反射会被强制开启） */
+const nnBlocked = computed(() => hasNnSeat.value && !state.boundaryReflects)
 function changeSeat(color: Color, event: Event) {
   const value = (event.target as HTMLSelectElement).value
   const ai = value !== 'human'
   if (ai) aiProviders.value[color] = value as AiProvider
   if (value === 'dsh' && !aiProfileIds.value[color]) aiProfileIds.value[color] = defaultDshProfileId()
+  if (value === 'nn' && !seatEngine[color] && defaultNnModel.value) seatEngine[color] = defaultNnModel.value.id
   aiSeats.value = ai ? [...aiSeats.value.filter(c => c !== color), color] : aiSeats.value.filter(c => c !== color)
 }
 /** 联机方式（3=中继，1/2=旧 P2P 协议） */
@@ -105,7 +143,7 @@ async function local() {
   try {
     checkProfiles()
     const opening = await generateConfiguredOpening()
-    startLocal(count.value, selectedAi.value, aiProviders.value, aiProfileIds.value, opening)
+    startLocal(count.value, selectedAi.value, aiProviders.value, aiProfileIds.value, opening, aiNnConfigs.value)
   } catch (e) { error.value = (e as Error).message }
   finally { busy.value = false }
 }
@@ -175,7 +213,7 @@ async function create() {
   try {
     checkProfiles()
     generatedOpening = await generateConfiguredOpening()
-    code.value = await netCreate(count.value, sig.value, selectedAi.value, aiProviders.value, aiProfileIds.value, generatedOpening)
+    code.value = await netCreate(count.value, sig.value, selectedAi.value, aiProviders.value, aiProfileIds.value, generatedOpening, aiNnConfigs.value)
     if (state.phase !== 'lobby') return
     view.value = 'created'
     void syncAnnounce()
@@ -194,7 +232,7 @@ async function onSigChange(e: Event) {
   error.value = ''
   try {
     checkProfiles()
-    code.value = await netCreate(count.value, sig.value, selectedAi.value, aiProviders.value, aiProfileIds.value, generatedOpening)
+    code.value = await netCreate(count.value, sig.value, selectedAi.value, aiProviders.value, aiProfileIds.value, generatedOpening, aiNnConfigs.value)
     void syncAnnounce()
   } catch (err) {
     error.value = (err as Error).message
@@ -286,18 +324,49 @@ onMounted(() => {
         <div class="seat-settings" aria-label="玩家座位">
           <div v-for="p in configuredSeats" :key="p.id" class="seat-card"><label class="seat-row">
             <span :style="{ color: p.hex }">{{ p.name }}方{{ preparing === 'online' && p.id === 'blue' ? '（房主）' : '' }}</span>
-            <select class="sig-select" :aria-label="`${p.name}方控制方式`" :value="selectedAi.includes(p.id) ? (aiProviders[p.id] ?? 'wasm') : 'human'"
-              @change="changeSeat(p.id, $event)">
-              <option value="human">{{ preparing === 'online' ? '真人玩家' : '人类' }}</option>
-              <option value="wasm">AI · Rust / WASM</option>
-              <option value="dsh">AI · DSH</option>
-            </select>
+            <span class="seat-ctls">
+              <select class="sig-select" :aria-label="`${p.name}方控制方式`" :value="selectedAi.includes(p.id) ? (aiProviders[p.id] ?? 'wasm') : 'human'"
+                @change="changeSeat(p.id, $event)">
+                <option value="human">{{ preparing === 'online' ? '真人玩家' : '人类' }}</option>
+                <option value="wasm">AI · Rust / WASM</option>
+                <option value="dsh">AI · DSH</option>
+                <option value="nn">AI · 神经网络（本机）</option>
+              </select>
+              <template v-if="selectedAi.includes(p.id) && aiProviders[p.id] === 'nn'">
+                <select v-model="seatEngine[p.id]" class="sig-select" :aria-label="`${p.name}方 NN 模型`">
+                  <option v-for="m in sizeModels" :key="m.id" :value="m.id" :title="m.eloNote">
+                    {{ m.name }} · Elo {{ m.elo }}{{ m.eloNote ? '†' : '' }}{{ m.recommended ? ' · 推荐' : '' }}
+                  </option>
+                </select>
+                <select
+                  class="sig-select" :aria-label="`${p.name}方 NN 计算量`"
+                  :value="limitModeOf(p.id)"
+                  @change="seatLimitMode[p.id] = ($event.target as HTMLSelectElement).value as 'time' | 'sims'"
+                >
+                  <option value="time">按时间</option>
+                  <option value="sims">按模拟数</option>
+                </select>
+                <select
+                  v-if="limitModeOf(p.id) === 'sims'" class="sig-select" :aria-label="`${p.name}方 MCTS 模拟数`"
+                  :value="simsOf(p.id)"
+                  @change="seatSims[p.id] = Number(($event.target as HTMLSelectElement).value)"
+                >
+                  <option :value="50">50 sims（快速）</option>
+                  <option :value="150">150 sims（训练/评测标准）</option>
+                  <option :value="400">400 sims（棋力优先）</option>
+                </select>
+                <label class="laser-opt seat-stochastic">
+                  <input type="checkbox" v-model="seatStochastic[p.id]" />
+                  随机
+                </label>
+              </template>
+            </span>
           </label>
           <DshProfileSelect v-if="selectedAi.includes(p.id) && aiProviders[p.id] === 'dsh'" v-model="aiProfileIds[p.id]" :label="`${p.name}方 LLM 配置`" />
           </div>
         </div>
-        <label v-if="hasWasm" class="laser-opt">
-          WASM 每步最多思考
+        <label v-if="hasWasm || hasNnSeat" class="laser-opt">
+          AI 每步最多思考（WASM 与「按时间」NN 座位共用）
           <select v-model.number="state.aiBudgetMs" class="sig-select" aria-label="AI 每步思考上限">
             <option :value="3000">3 秒</option>
             <option :value="10000">10 秒</option>
@@ -306,7 +375,13 @@ onMounted(() => {
         </label>
         <DshSettings v-if="hasDsh" />
         <p v-if="hasDsh" class="ai-hint">DSH 不使用 WASM 的思考上限；启用棋钟时仍受棋局时间限制。</p>
-        <p v-if="hasAi" class="ai-hint">AI 可提前落子，自动布置基地，需要边界反射。联机 AI 由房主运行，不占真人连接。</p>
+        <p v-if="!sizeModels.length && nnModels.length" class="ai-hint">
+          NN 模型只支持 {{ [...new Set(nnModels.map((m) => m.boardSize))].join('、') }}× 棋盘：把下方棋盘尺寸改为
+          <button class="btn-plain size-chip" v-for="s in [...new Set(nnModels.map((m) => m.boardSize))]" :key="s" @click="state.size = s">{{ s }}×{{ s }}</button>
+          即可为 AI 座位选择神经网络模型。
+        </p>
+        <p v-if="nnBlocked" class="error" style="margin: 0">NN 模型需要开启边界反射（与内置引擎一致）。</p>
+        <p v-if="hasAi" class="ai-hint">AI 可提前落子，自动布置基地，需要边界反射。联机 AI 由房主运行，不占真人连接；NN 模型在本机浏览器内推理，无需联网。</p>
         <p v-if="preparing === 'online' && selectedAi.includes('blue')" class="ai-hint">蓝方由 AI 执棋，你仍是房主，可以管理房间和 AI。请保持房主页面在线。</p>
         <label class="laser-opt">棋盘
           <input class="size-input" type="number" :min="SIZE_MIN" :max="SIZE_MAX" :value="state.size" @change="clampSize" />
@@ -337,7 +412,7 @@ onMounted(() => {
       </fieldset>
       <p v-if="openingProgress" class="ai-hint" role="status">{{ openingProgress }}</p>
       <div class="row">
-        <button class="btn-primary" :disabled="busy" @click="preparing === 'local' ? local() : create()">
+        <button class="btn-primary" :disabled="busy || nnBlocked" @click="preparing === 'local' ? local() : create()">
           {{ openingProgress ? '正在生成局面…' : busy ? '正在准备…' : preparing === 'local' ? '开始对局' : '创建并等待' }}
         </button>
         <button class="btn-plain" :disabled="busy" @click="cancel">返回</button>
@@ -467,6 +542,9 @@ onMounted(() => {
 .replay-entry { color: inherit; text-decoration: none; }
 .seat-settings { display: flex; flex-direction: column; gap: 10px; }
 .seat-row { display: flex; align-items: center; justify-content: space-between; gap: 18px; font-size: 14px; }
+.seat-ctls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.seat-stochastic { font-size: 13px; white-space: nowrap; }
+.size-chip { padding: 1px 8px; font-size: 12px; }
 .ai-hint { margin: 0; font-size: 12px; color: #8a7f68; line-height: 1.6; }
 
 .lobby {
@@ -547,6 +625,34 @@ onMounted(() => {
 }
 .sig-select:focus {
   border-color: #2f6fed;
+}
+.model-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.model-section-title {
+  margin: 0;
+  font-size: 13px;
+  color: #8a7f68;
+}
+.model-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.model-group-title {
+  margin: 0;
+  font-size: 12px;
+  letter-spacing: 2px;
+  color: #b0a488;
+  border-bottom: 1px dashed #d8cbab;
+  padding-bottom: 3px;
+}
+.model-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
 }
 .sig-hint {
   font-size: 12px;

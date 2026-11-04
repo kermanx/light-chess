@@ -14,9 +14,12 @@ import {
   applyRemote,
   applyClockSync,
   applySnapshot,
+  sanitizeAiNnConfigs,
+  sanitizeLegacyAiEngines,
   serialize,
   serializeClock,
   setClockSender,
+  setAiNnConfigs,
   setAiPlayers,
   setAiProviders,
   setAiProfileIds,
@@ -24,6 +27,7 @@ import {
   startOnline,
   state,
   type Action,
+  type AiNnConfigs,
   type Snapshot,
 } from './store'
 
@@ -82,9 +86,9 @@ const genToken = () =>
 
 type Msg =
   | { t: 'hello'; token: string; want: Color | null }
-  | { t: 'welcome'; color: Color; players: number; joined: number; started: boolean; aiPlayers?: Color[]; aiProviders?: AiProviders; aiProfileIds?: AiProfileIds; aiBudgetMs?: number }
+  | { t: 'welcome'; color: Color; players: number; joined: number; started: boolean; aiPlayers?: Color[]; aiProviders?: AiProviders; aiProfileIds?: AiProfileIds; aiBudgetMs?: number; aiNnConfigs?: AiNnConfigs; aiEngines?: unknown }
   | { t: 'room-info'; joined: number }
-  | { t: 'start'; players: number; snapshot?: Snapshot; settings?: { size: number; laserAllowed: boolean; allowUndo: boolean; boundaryReflects?: boolean; clockSettings?: ClockSettings; aiPlayers?: Color[]; aiProviders?: AiProviders; aiProfileIds?: AiProfileIds; aiBudgetMs?: number } }
+  | { t: 'start'; players: number; snapshot?: Snapshot; settings?: { size: number; laserAllowed: boolean; allowUndo: boolean; boundaryReflects?: boolean; clockSettings?: ClockSettings; aiPlayers?: Color[]; aiProviders?: AiProviders; aiProfileIds?: AiProfileIds; aiBudgetMs?: number; aiNnConfigs?: AiNnConfigs; aiEngines?: unknown } }
   | { t: 'act'; act: Action; origin?: string; clock?: ClockSync }
   | { t: 'clock'; clock: ClockSync }
   | { t: 'sync'; snap: Snapshot }
@@ -102,6 +106,9 @@ interface NetRecord {
   aiProviders?: AiProviders
   aiProfileIds?: AiProfileIds
   aiBudgetMs?: number
+  aiNnConfigs?: AiNnConfigs
+  /** 旧格式档案的引擎配置；读取时迁移进 aiProviders/aiNnConfigs */
+  aiEngines?: unknown
 }
 
 // 身份档案存两份：sessionStorage（标签页私有，同标签页刷新保留、不同标签页隔离）为主，
@@ -232,7 +239,7 @@ const sendAct = (act: Action) => {
 
 function persistSeats() {
   const rec = loadNet()
-  if (rec?.host) saveNet({ ...rec, seats: Object.fromEntries(seats), aiPlayers: [...state.aiPlayers], aiProviders: { ...state.aiProviders }, aiProfileIds: { ...state.aiProfileIds }, aiBudgetMs: state.aiBudgetMs })
+  if (rec?.host) saveNet({ ...rec, seats: Object.fromEntries(seats), aiPlayers: [...state.aiPlayers], aiProviders: { ...state.aiProviders }, aiProfileIds: { ...state.aiProfileIds }, aiBudgetMs: state.aiBudgetMs, aiNnConfigs: { ...state.aiNnConfigs } })
 }
 
 function clearHello() {
@@ -263,11 +270,11 @@ function hostStartIfReady(): boolean {
   if (!isHost || started || occupiedSeatCount() !== state.players.length) return false
   started = true
   const aiPlayers = [...state.aiPlayers]
-  startOnline(state.myColor!, state.roomCode, state.players, aiPlayers, state.aiProviders, state.aiProfileIds, preparedOpening)
+  startOnline(state.myColor!, state.roomCode, state.players, aiPlayers, state.aiProviders, state.aiProfileIds, preparedOpening, state.aiNnConfigs)
   send({ t: 'start', players: state.players.length, snapshot: serialize(), settings: {
     size: state.size, laserAllowed: state.laserAllowed, allowUndo: state.allowUndo,
     boundaryReflects: state.boundaryReflects, clockSettings: { ...state.clockSettings },
-    aiPlayers, aiProviders: { ...state.aiProviders }, aiProfileIds: { ...state.aiProfileIds }, aiBudgetMs: state.aiBudgetMs,
+    aiPlayers, aiProviders: { ...state.aiProviders }, aiProfileIds: { ...state.aiProfileIds }, aiBudgetMs: state.aiBudgetMs, aiNnConfigs: { ...state.aiNnConfigs },
   } })
   return true
 }
@@ -300,7 +307,7 @@ function hostOnHello(msg: Extract<Msg, { t: 'hello' }>, peerId: string) {
   connected.add(msg.token)
   state.roomJoined = occupiedSeatCount()
   send(
-    { t: 'welcome', color, players: state.players.length, joined: occupiedSeatCount(), started, aiPlayers: state.aiPlayers, aiProviders: { ...state.aiProviders }, aiProfileIds: { ...state.aiProfileIds }, aiBudgetMs: state.aiBudgetMs },
+    { t: 'welcome', color, players: state.players.length, joined: occupiedSeatCount(), started, aiPlayers: state.aiPlayers, aiProviders: { ...state.aiProviders }, aiProfileIds: { ...state.aiProfileIds }, aiBudgetMs: state.aiBudgetMs, aiNnConfigs: { ...state.aiNnConfigs } },
     peerId,
   )
   send({ t: 'room-info', joined: occupiedSeatCount() })
@@ -348,8 +355,10 @@ function onWelcome(msg: Extract<Msg, { t: 'welcome' }>, peerId: string) {
   state.myColor = msg.color
   state.players = seatColors(msg.players)
   setAiPlayers(msg.aiPlayers ?? [])
-  setAiProviders(msg.aiProviders)
+  const legacy = sanitizeLegacyAiEngines(msg.aiEngines)
+  setAiProviders({ ...legacy.providers, ...msg.aiProviders })
   setAiProfileIds(msg.aiProfileIds)
+  setAiNnConfigs({ ...legacy.nnConfigs, ...sanitizeAiNnConfigs(msg.aiNnConfigs) })
   state.aiBudgetMs = msg.aiBudgetMs ?? 10000
   state.roomJoined = msg.joined
   saveNet({ code: state.roomCode, token, host: false, players: msg.players })
@@ -384,7 +393,10 @@ function handle(msg: Msg, peerId: string) {
         state.boundaryReflects = msg.settings?.boundaryReflects ?? false
         state.clockSettings = msg.settings?.clockSettings ?? { ...defaultClockSettings(), enabled: false }
         state.aiBudgetMs = msg.settings?.aiBudgetMs ?? 10000
-        startOnline(state.myColor!, state.roomCode, state.players, msg.settings?.aiPlayers ?? [], msg.settings?.aiProviders, msg.settings?.aiProfileIds)
+        const legacy = sanitizeLegacyAiEngines(msg.settings?.aiEngines)
+        startOnline(state.myColor!, state.roomCode, state.players, msg.settings?.aiPlayers ?? [],
+          { ...legacy.providers, ...msg.settings?.aiProviders }, msg.settings?.aiProfileIds, undefined,
+          { ...legacy.nnConfigs, ...sanitizeAiNnConfigs(msg.settings?.aiNnConfigs) })
         if (msg.snapshot) applySnapshot(msg.snapshot, true)
       }
       break
@@ -503,7 +515,7 @@ function waitWelcome(): Promise<void> {
 }
 
 /** 创建房间，返回房间号（本方坐 0 号位）；signaling 决定信令通道并编入房号首位 */
-export async function netCreate(playerCount: number, signaling: Signaling = 'relay', aiPlayers: Color[] = [], aiProviders: AiProviders = {}, aiProfileIds: AiProfileIds = {}, opening?: OpeningPosition): Promise<string> {
+export async function netCreate(playerCount: number, signaling: Signaling = 'relay', aiPlayers: Color[] = [], aiProviders: AiProviders = {}, aiProfileIds: AiProfileIds = {}, opening?: OpeningPosition, aiNnConfigs: AiNnConfigs = {}): Promise<string> {
   if (opening && !validOpening(opening, state.size, seatColors(playerCount), aiPlayers.some(c => seatColors(playerCount).includes(c)) || state.boundaryReflects)) {
     throw new Error('预设局面与房间设置不符')
   }
@@ -521,13 +533,14 @@ export async function netCreate(playerCount: number, signaling: Signaling = 'rel
   setAiPlayers(aiPlayers)
   setAiProviders(aiProviders)
   setAiProfileIds(aiProfileIds)
+  setAiNnConfigs(aiNnConfigs)
   state.roomCode = code
   state.peerLeft = false
   seats = new Map([[token, state.myColor]])
   connected = new Set([token])
   state.roomJoined = occupiedSeatCount()
   peerByToken = new Map()
-  saveNet({ code, token, host: true, players: playerCount, seats: Object.fromEntries(seats), aiPlayers: state.aiPlayers, aiProviders: { ...state.aiProviders }, aiProfileIds: { ...state.aiProfileIds }, aiBudgetMs: state.aiBudgetMs })
+  saveNet({ code, token, host: true, players: playerCount, seats: Object.fromEntries(seats), aiPlayers: state.aiPlayers, aiProviders: { ...state.aiProviders }, aiProfileIds: { ...state.aiProfileIds }, aiBudgetMs: state.aiBudgetMs, aiNnConfigs: { ...state.aiNnConfigs } })
   await openRoom(code)
   hostStartIfReady()
   return code
@@ -565,8 +578,10 @@ export async function netRejoin(code: string, color: Color, playerCount: number)
     isHost = true
     state.players = seatColors(playerCount)
     setAiPlayers(rec.aiPlayers ?? state.aiPlayers)
-    setAiProviders(rec.aiProviders ?? state.aiProviders)
+    const legacy = sanitizeLegacyAiEngines(rec.aiEngines)
+    setAiProviders(rec.aiProviders ?? { ...legacy.providers, ...state.aiProviders })
     setAiProfileIds(rec.aiProfileIds ?? state.aiProfileIds)
+    setAiNnConfigs(rec.aiNnConfigs ? sanitizeAiNnConfigs(rec.aiNnConfigs) : { ...legacy.nnConfigs, ...state.aiNnConfigs })
     state.aiBudgetMs = rec.aiBudgetMs ?? state.aiBudgetMs
     seats = new Map(Object.entries(rec.seats ?? {}))
     seats.set(token, color)

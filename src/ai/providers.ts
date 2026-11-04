@@ -1,7 +1,7 @@
 import type { Color } from '../game'
 import type { AiRequest, AiResponse } from './protocol'
 
-export type AiProvider = 'wasm' | 'dsh'
+export type AiProvider = 'wasm' | 'dsh' | 'nn'
 export type AiProviders = Partial<Record<Color, AiProvider>>
 /** Only opaque profile IDs travel with a game. Credentials stay in this browser. */
 export type AiProfileIds = Partial<Record<Color, string>>
@@ -16,7 +16,7 @@ export type DshTrajectoryPayload = { sessionId: string } & (
 )
 export interface AiTrajectory { type: 'trajectory'; payload: DshTrajectoryPayload }
 export type AiWorkerMessage = AiResponse | AiProgress | AiTrajectory
-export const aiProviderName = (provider: AiProvider) => provider === 'dsh' ? 'DSH' : 'Rust / WASM'
+export const aiProviderName = (provider: AiProvider) => provider === 'dsh' ? 'DSH' : provider === 'nn' ? 'NN（本机模型）' : 'Rust / WASM'
 
 /** Worker errors and tool output may echo HTTP headers; redact before display, save or sync. */
 export function redactAiDetail(value: unknown, apiKey = ''): unknown {

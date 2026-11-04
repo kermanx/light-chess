@@ -22,8 +22,10 @@ import {
   edgeOf,
   PALETTE,
   simulate,
+  simulateDirected,
   type Color,
   type Dir,
+  type DirSegment,
   type Ori,
   type Pt,
 } from '../game'
@@ -50,6 +52,8 @@ import {
   wouldEnclose,
   wouldEncloseDiag,
 } from '../store'
+import { loadNnModels, nnModelsForSize, type NnModelInfo } from '../nn/models'
+import { openReview } from '../review'
 
 const S = 28 // 格距（px）
 const PAD = 36
@@ -74,10 +78,20 @@ const hasTrajectory = computed(() => hasDsh.value || trajectoryRuns.value.some(r
 watch(hasDsh, value => { if (value) trajectoryOpen.value = true }, { immediate: true })
 watch(() => state.sessionId, id => { void loadTrajectoryRuns(id).catch(error => console.warn('无法读取 DSH 轨迹', error)) }, { immediate: true })
 function changeAiProvider(color: Color, event: Event) {
-  dispatch({ kind: 'ai-provider-setting', color: state.players[0], target: color, provider: (event.target as HTMLSelectElement).value as AiProvider })
-  if (aiProviderFor(color) === 'dsh' && !state.aiProfileIds[color] && defaultDshProfileId()) {
+  const provider = (event.target as HTMLSelectElement).value as AiProvider
+  dispatch({ kind: 'ai-provider-setting', color: state.players[0], target: color, provider })
+  if (provider === 'dsh' && !state.aiProfileIds[color] && defaultDshProfileId()) {
     dispatch({ kind: 'ai-profile-setting', color: state.players[0], target: color, profileId: defaultDshProfileId() })
   }
+  if (provider === 'nn' && !state.aiNnConfigs[color]) {
+    const model = sizeModels.value.find(m => m.recommended) ?? sizeModels.value[0]
+    if (model) dispatch({ kind: 'ai-nn-setting', color: state.players[0], target: color, nn: { modelId: model.id } })
+  }
+}
+function changeNnModel(color: Color, event: Event) {
+  const current = state.aiNnConfigs[color]
+  if (!current) return
+  dispatch({ kind: 'ai-nn-setting', color: state.players[0], target: color, nn: { ...current, modelId: (event.target as HTMLSelectElement).value } })
 }
 
 const hoverEdge = ref<string | null>(null)
@@ -432,7 +446,8 @@ const nudge = ref(0)
 
 /** 对方回合点击棋盘：状态栏描边脉冲提醒「还没轮到你」 */
 function remindWait() {
-  if (state.phase !== 'play' || state.mode !== 'online' || state.peerLeft) return
+  if (state.phase !== 'play' || state.peerLeft) return
+  if (state.mode !== 'online' && !isAiPlayer(state.current)) return
   nudge.value++
 }
 
@@ -463,6 +478,63 @@ const hoverHomeColor = computed<Color | null>(() => {
   return null
 })
 const showPath = computed(() => replayVisible.value ? null : hoverHomeColor.value)
+/** AI 对战（所有座位都是 AI）：全程展示双方光路（含结束后），便于观战 */
+const showAllLasers = computed(() =>
+  state.mode === 'local' && state.players.length > 0 && state.players.every((c) => isAiPlayer(c)))
+
+/** 该颜色当前是否展示光路；返回 null 表示不展示或已出局（出局者不再模拟） */
+const laserSim = (c: Color) =>
+  showPath.value === c || showAllLasers.value ? sims.value.get(c) ?? null : null
+
+// ---------- AI 座位展示与暂停/继续 ----------
+/** 本地 NN 模型目录（座位控件显示模型名） */
+const nnModels = ref<NnModelInfo[]>([])
+onMounted(() => { loadNnModels().then((l) => (nnModels.value = l)).catch(() => { /* 标签退化为模型 id */ }) })
+const sizeModels = computed(() => nnModelsForSize(nnModels.value, state.size))
+const nnModelName = (id: string) => nnModels.value.find((m) => m.id === id)?.name ?? id
+
+/** 暂停/继续 AI：暂停直接置位（本地/房主权威），继续走 upstream ai-resume 动作（联机可广播） */
+const aiPauseVisible = computed(
+  () => !aiTest.active && state.aiPlayers.length > 0 && aiAuthority() && state.phase === 'play',
+)
+function toggleAiPause() {
+  if (state.aiPaused) dispatch({ kind: 'ai-resume', color: hostColor.value })
+  else state.aiPaused = true
+}
+
+/** 有向光路段（传播方向箭头用；与 sims 同一批存活玩家） */
+const dsims = computed(() => {
+  const m = new Map<Color, DirSegment[]>()
+  for (const c of state.players) if (!state.dead.includes(c)) m.set(c, simulateDirected(board, c))
+  return m
+})
+
+/** 一段有向光路的箭头三角形（svg 像素坐标）；垂直微偏，让同格反向的两支箭不叠在一起 */
+function arrowFor(seg: DirSegment) {
+  const { p, q } = seg
+  const dx = q.x - p.x
+  const dy = q.y - p.y
+  const len = Math.hypot(dx, dy) || 1
+  const ux = dx / len
+  const uy = dy / len
+  const nx = -uy
+  const ny = ux
+  const L = 0.16
+  const W = 0.1
+  const OFF = 0.07
+  const cx = p.x + dx * 0.62 + nx * OFF
+  const cy = p.y + dy * 0.62 + ny * OFF
+  const tip = { x: cx + ux * L, y: cy + uy * L }
+  const b1 = { x: cx - ux * L * 0.4 + nx * W, y: cy - uy * L * 0.4 + ny * W }
+  const b2 = { x: cx - ux * L * 0.4 - nx * W, y: cy - uy * L * 0.4 - ny * W }
+  return `${u(tip.x)},${u(tip.y)} ${u(b1.x)},${u(b1.y)} ${u(b2.x)},${u(b2.y)}`
+}
+
+const dirArrowMap = computed(() => {
+  const m = new Map<Color, string[]>()
+  for (const [c, segs] of dsims.value) m.set(c, segs.map(arrowFor))
+  return m
+})
 
 function toggleLaser(e: Event) {
   dispatch({ kind: 'laser-setting', color: hostColor.value, allow: (e.target as HTMLInputElement).checked })
@@ -674,27 +746,40 @@ const statusText = computed(() => {
           </template>
         </g>
 
-        <!-- 光路（悬停对应颜色的家时显示） -->
+        <!-- 光路（悬停对应颜色的家时显示；AI 对战全程显示双方） -->
         <template v-for="c in state.players" :key="`l${c}`">
-          <g v-if="showPath === c">
+          <g v-if="laserSim(c)" :style="{ color: COLORS[c] }">
             <path
-              v-if="sims.get(c)!.segments.length"
-              :d="segPath(sims.get(c)!.segments)"
+              v-if="laserSim(c)!.segments.length"
+              :d="segPath(laserSim(c)!.segments)"
               :stroke="COLORS[c]"
               class="laser-glow"
             />
             <path
-              v-if="sims.get(c)!.segments.length"
-              :d="segPath(sims.get(c)!.segments)"
+              v-if="laserSim(c)!.segments.length"
+              :d="segPath(laserSim(c)!.segments)"
               :stroke="COLORS[c]"
               class="laser-core"
             />
-            <polyline
-              v-if="sims.get(c)!.hitPath"
-              :points="linePath(sims.get(c)!.hitPath!)"
-              :stroke="COLORS[c]"
-              class="laser-hit"
+            <!-- 传播方向箭头（同格折返的两条反向段会画出一来一回两支箭） -->
+            <polygon
+              v-for="(a, i) in dirArrowMap.get(c) ?? []"
+              :key="`a${c}-${i}`"
+              :points="a"
+              :fill="COLORS[c]"
+              class="laser-arrow"
             />
+            <template v-if="laserSim(c)!.hitPath">
+              <polyline
+                :points="linePath(laserSim(c)!.hitPath!)"
+                :stroke="COLORS[c]"
+                class="laser-hit"
+              />
+              <polyline
+                :points="linePath(laserSim(c)!.hitPath!)"
+                class="laser-hit-core"
+              />
+            </template>
           </g>
         </template>
 
@@ -836,7 +921,9 @@ const statusText = computed(() => {
       </svg>
 
       <GameResult v-if="state.phase === 'over' && state.winner && !victoryDismissed && (!hasVictoryPath || victoryReady)"
-        :winner="state.winner" :timed-out="state.timedOut" :laser-win="hasVictoryPath" @confirm="victoryDismissed = true" />
+        :winner="state.winner" :timed-out="state.timedOut" :laser-win="hasVictoryPath"
+        :show-review="state.mode === 'local'"
+        @confirm="victoryDismissed = true" @review="openReview()" />
     </div>
 
     <aside class="side">
@@ -886,10 +973,17 @@ const statusText = computed(() => {
         <div v-for="c in state.aiPlayers" :key="`ai-${c}`" class="room ai-provider-control" :style="{ color: COLORS[c] }">
           {{ name(c) }} AI
           <select v-if="aiAuthority()" :value="aiProviderFor(c)" :aria-label="`${name(c)} AI 实现`" @change="changeAiProvider(c, $event)">
-            <option value="wasm">Rust / WASM</option><option value="dsh">DSH</option>
+            <option value="wasm">Rust / WASM</option><option value="dsh">DSH</option><option value="nn">NN（本机）</option>
           </select>
           <span v-else>{{ aiProviderName(aiProviderFor(c)) }}</span>
           <span v-if="aiProviderFor(c) === 'wasm'">每步最多 {{ state.aiBudgetMs / 1000 }} 秒</span>
+          <template v-if="aiProviderFor(c) === 'nn'">
+            <select v-if="aiAuthority()" :value="state.aiNnConfigs[c]?.modelId" :aria-label="`${name(c)} NN 模型`" @change="changeNnModel(c, $event)">
+              <option v-for="m in sizeModels" :key="m.id" :value="m.id">{{ m.name }} · Elo {{ m.elo }}{{ m.recommended ? ' · 推荐' : '' }}</option>
+            </select>
+            <span v-else>{{ state.aiNnConfigs[c] ? nnModelName(state.aiNnConfigs[c]!.modelId) : '未配置模型' }}</span>
+            <span v-if="state.aiNnConfigs[c]?.stochastic">随机</span>
+          </template>
           <DshProfileSelect v-if="aiProviderFor(c) === 'dsh' && aiAuthority()" :model-value="state.aiProfileIds[c]" :label="`${name(c)} LLM 配置`" @update:model-value="dispatch({ kind: 'ai-profile-setting', color: state.players[0], target: c, profileId: $event })" />
         </div>
         <span
@@ -927,6 +1021,10 @@ const statusText = computed(() => {
       <div v-if="undoAvailable || isHostSide" class="btn-row">
         <button v-if="undoAvailable" class="btn-plain" :disabled="!canUndoNow" @click="undo">撤回一步</button>
         <button v-if="isHostSide && !aiTest.active" class="btn-plain" :disabled="generatingOpening" @click="restart">{{ generatingOpening ? '正在生成…' : '重新开始' }}</button>
+        <button v-if="aiPauseVisible" class="btn-plain" @click="toggleAiPause">
+          {{ state.aiPaused ? '继续 AI' : '暂停 AI' }}
+        </button>
+        <button v-if="state.phase === 'over' && state.mode === 'local'" class="btn-plain" @click="openReview()">复盘分析</button>
       </div>
       <p v-if="openingProgress" role="status">{{ openingProgress }}</p>
       <p v-if="openingError" class="ai-error" role="alert">{{ openingError }}</p>
@@ -1160,24 +1258,37 @@ const statusText = computed(() => {
 }
 .laser-glow {
   fill: none;
-  stroke-width: 8;
-  stroke-opacity: 0.22;
+  stroke-width: 11;
+  stroke-opacity: 0.3;
   stroke-linecap: round;
   pointer-events: none;
 }
 .laser-core {
   fill: none;
-  stroke-width: 2.6;
+  stroke-width: 3.2;
   stroke-opacity: 0.95;
   stroke-linecap: round;
   pointer-events: none;
 }
+.laser-arrow {
+  pointer-events: none;
+  animation: pulse 1.6s ease-in-out infinite;
+}
 .laser-hit {
   fill: none;
-  stroke-width: 3.5;
+  stroke-width: 4.5;
   stroke-linejoin: round;
   stroke-linecap: round;
-  filter: drop-shadow(0 0 5px currentColor);
+  filter: drop-shadow(0 0 6px currentColor);
+  pointer-events: none;
+}
+.laser-hit-core {
+  fill: none;
+  stroke: #fffdf0;
+  stroke-width: 1.6;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  stroke-opacity: 0.9;
   pointer-events: none;
 }
 .ctl-note {

@@ -6,6 +6,8 @@ import { dshConfigToken, readDshConfig } from './config'
 import { createDshWorker } from './dsh-provider'
 import { redactAiDetail, type AiProvider, type AiWorkerMessage, type DshConfig } from './providers'
 import { emitAiSearch, type AiSearchEvent } from './telemetry'
+import { MODELS_BASE } from '../nn/models'
+import type { NnWorkerMessage } from './nn-worker'
 import { DshActivityTracker, dshActivityLabel } from './dsh-activity'
 
 export const aiStatus = reactive({
@@ -41,6 +43,19 @@ export function startAiController(createWorker: (provider: AiProvider) => Worker
   let timeout: ReturnType<typeof setTimeout> | null = null
   let generation = 0
   let search: { searchId: string; gameId: string; revision: number } | null = null
+  /**
+   * NN worker 池（key = modelId|stochastic）：NN 推理是异步的，迟到响应由代际号丢弃，
+   * 不必像 WASM 那样 terminate；复用 worker 让 onnx session 缓存生效，避免每手重载权重。
+   */
+  const nnWorkers = new Map<string, Worker>()
+  const acquireNnWorker = (key: string): Worker => {
+    let w = nnWorkers.get(key)
+    if (!w) {
+      w = new Worker(new URL('./nn-worker.ts', import.meta.url), { type: 'module' })
+      nnWorkers.set(key, w)
+    }
+    return w
+  }
   const report = (type: AiSearchEvent['type'], detail: unknown) => {
     if (search) emitAiSearch({ ...search, type, detail })
   }
@@ -60,6 +75,7 @@ export function startAiController(createWorker: (provider: AiProvider) => Worker
     state.peerLeft, state.aiPaused, state.boundaryReflects,
     aiTurnColor.value ? aiProviderFor(aiTurnColor.value) : null,
     aiTurnColor.value && aiProviderFor(aiTurnColor.value) === 'dsh' ? configToken.value : state.aiBudgetMs,
+    aiTurnColor.value ? JSON.stringify(state.aiNnConfigs[aiTurnColor.value] ?? null) : null,
     state.aiPlayers.join(','), aiTurnColor.value, retry.value,
   ], () => {
     cancel()
@@ -80,6 +96,7 @@ export function startAiController(createWorker: (provider: AiProvider) => Worker
       aiStatus.error = message
     }
     if (!state.boundaryReflects) return fail('AI 需要开启边界反射')
+    if (provider === 'nn' && !state.aiNnConfigs[color]) return fail('NN 座位缺少模型配置，请重新选择模型')
     let budgetMs = state.aiBudgetMs
     if (provider === 'wasm' && state.phase === 'play' && state.clockSettings.enabled) {
       budgetMs = Math.max(1, Math.min(budgetMs, Math.floor(remainingTime(color, Date.now()) - 200)))
@@ -95,10 +112,13 @@ export function startAiController(createWorker: (provider: AiProvider) => Worker
     aiStatus.stats = null
     try {
       if (provider === 'dsh') dsh = readDshConfig(state.aiProfileIds[color])
-      const worker = createWorker(provider)
+      const nn = provider === 'nn' ? state.aiNnConfigs[color]! : null
+      // NN 座位走池化 worker（active 不持有它，cancel 不会 terminate）；WASM/DSH 维持每次新建。
+      const worker = nn
+        ? acquireNnWorker(`${nn.modelId}|${nn.stochastic ? 1 : 0}`)
+        : (active = createWorker(provider))
       const activity = new DshActivityTracker(Date.now())
       let lastProgressAt = 0, lastStage = ''
-      active = worker
       worker.onmessage = (event: MessageEvent<AiWorkerMessage>) => {
         if (generation !== expected || state.positionRevision !== revision || state.peerLeft ||
           state.aiPaused || !aiAuthority() || aiTurnColor.value !== color) return
@@ -142,13 +162,27 @@ export function startAiController(createWorker: (provider: AiProvider) => Worker
           { source: 'worker', filename: event.filename, line: event.lineno, column: event.colno },
         )
       }
-      if (provider === 'wasm') timeout = setTimeout(() => {
+      if (provider !== 'dsh') timeout = setTimeout(() => {
         if (generation === expected) fail('AI 搜索超时，请重试或缩短思考时间')
-      }, budgetMs + 10_000)
-      worker.postMessage(dsh ? { ...request, dsh } : request)
+      }, (provider === 'nn' ? Math.max(budgetMs, 20_000) : budgetMs) + 10_000)
+      if (nn) {
+        const message: NnWorkerMessage = {
+          request,
+          nn: { modelId: nn.modelId, stochastic: nn.stochastic, modelsBase: MODELS_BASE, limit: nn.limit },
+        }
+        worker.postMessage(message)
+      } else {
+        worker.postMessage(dsh ? { ...request, dsh } : request)
+      }
     } catch (error) {
       fail(error instanceof Error ? error.message : String(error))
     }
   }, { immediate: true })
-  return () => { stop(); cancel(); aiStatus.status = 'idle' }
+  return () => {
+    stop()
+    cancel()
+    for (const w of nnWorkers.values()) w.terminate()
+    nnWorkers.clear()
+    aiStatus.status = 'idle'
+  }
 }
