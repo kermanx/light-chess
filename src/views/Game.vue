@@ -53,7 +53,7 @@ import {
   wouldEncloseDiag,
 } from '../store'
 import { loadNnModels, nnModelsForSize, type NnModelInfo } from '../nn/models'
-import { openReview } from '../review'
+import { canReview, openReview } from '../review'
 
 const S = 28 // 格距（px）
 const PAD = 36
@@ -921,7 +921,7 @@ const statusText = computed(() => {
 
       <GameResult v-if="state.phase === 'over' && state.winner && !victoryDismissed && (!hasVictoryPath || victoryReady)"
         :winner="state.winner" :timed-out="state.timedOut" :laser-win="hasVictoryPath"
-        :show-review="state.mode === 'local'"
+        :show-review="canReview"
         @confirm="victoryDismissed = true" @review="openReview()" />
     </div>
 
@@ -1024,7 +1024,7 @@ const statusText = computed(() => {
         <button v-if="aiPauseVisible" class="btn-plain" @click="toggleAiPause">
           {{ state.aiPaused ? '继续 AI' : '暂停 AI' }}
         </button>
-        <button v-if="state.phase === 'over' && state.mode === 'local'" class="btn-plain" @click="openReview()">复盘分析</button>
+        <button v-if="state.phase === 'over' && canReview" class="btn-plain" @click="openReview()">复盘分析</button>
       </div>
       <p v-if="openingProgress" role="status">{{ openingProgress }}</p>
       <p v-if="openingError" class="ai-error" role="alert">{{ openingError }}</p>

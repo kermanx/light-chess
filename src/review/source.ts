@@ -14,7 +14,7 @@
  * | second          | 第二意见模型        | —（null）               | —（null）                   |
  * | dead            | 服务端僵持判定      | 必平核一阶判定          | 必平核一阶判定              |
  */
-import { edgeOf, type BoardState, type Color, type Dir, type Home, type Ori } from '../game'
+import { edgeOf, type BoardState, type Color, type Diag, type Dir, type Home, type Mirror, type Ori } from '../game'
 import { isDeadDraw } from '../ai/nn-mcts'
 import { makeAiRequest, type AiRequest, type AiResponse, type AiStats } from '../ai/protocol'
 import { loadNnModels, MODELS_BASE, nnModelsForSize, type NnModelInfo } from '../nn/models'
@@ -74,6 +74,7 @@ export interface ReviewGameInput {
   boundaryReflects: boolean
   homes: Partial<Record<Color, Home>>
   moves: ReviewMove[]
+  initialMirrors?: { edges: [string, Mirror][]; diags: [string, Diag][] }
 }
 
 export interface ReviewCallbacks {
@@ -187,8 +188,8 @@ export type ReviewSearchFn = (req: AiRequest) => Promise<AiResponse>
 
 /** 重建第 k 手之前的局面（homes 的三面家镜 + 前 k 手落子） */
 export function reviewBoardAt(game: ReviewGameInput, k: number): BoardState {
-  const edges = new Map<string, { color: Color }>()
-  const diags = new Map<string, { color: Color; ori: Ori }>()
+  const edges = new Map(game.initialMirrors?.edges)
+  const diags = new Map(game.initialMirrors?.diags)
   for (const [c, h] of Object.entries(game.homes)) {
     if (!h) continue
     for (const d of [0, 1, 2, 3] as Dir[]) {

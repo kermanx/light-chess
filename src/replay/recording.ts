@@ -1,4 +1,5 @@
 import { PALETTE, type Color, type Diag, type Home, type Mirror } from '../game.ts'
+import type { AiProvider } from '../ai/providers'
 import type { ClockSettings } from '../clock.ts'
 import type { Action, Phase, Snapshot } from '../store.ts'
 import { describeMove, replayFrames, type ReplayAction, type ReplayDocument, type ReplayFrame } from './model.ts'
@@ -81,6 +82,8 @@ export const playerName = (c: Color) => `${PALETTE.find(p => p.id === c)?.name ?
 const copy = <T>(value: T): T => JSON.parse(JSON.stringify(value))
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
 
+const recordedAiName = (provider: AiProvider = 'wasm') => ({ wasm: '规则 AI', dsh: 'DSH', nn: 'NN' })[provider]
+
 export function recordedPosition(s: Snapshot): RecordedPosition {
   const players = s.players ?? ['blue', 'red']
   return copy({
@@ -88,7 +91,7 @@ export function recordedPosition(s: Snapshot): RecordedPosition {
     homes: s.homes, edges: s.edges, diags: s.diags,
     phase: s.phase, current: s.current, winner: s.winner,
     dead: s.dead ?? [], timedOut: s.timedOut ?? [],
-    actors: Object.fromEntries(players.map(c => [c, s.aiPlayers?.includes(c) ? s.aiProviders?.[c] === 'dsh' ? 'DSH' : '规则 AI' : '人类'])),
+    actors: Object.fromEntries(players.map(c => [c, s.aiPlayers?.includes(c) ? recordedAiName(s.aiProviders?.[c]) : '人类'])),
     clock: s.clockSettings?.enabled && s.clock ? { settings: s.clockSettings, remaining: s.clock.remaining } : null,
   })
 }
@@ -125,7 +128,7 @@ function label(a: Action) {
   if (a.kind === 'board-size') return `棋盘调整为 ${a.size} × ${a.size}`
   if (a.kind === 'boundary-setting') return a.enabled ? '开启边界反射' : '关闭边界反射'
   if (a.kind === 'laser-setting') return a.allow ? '允许显示光路' : '禁止显示光路'
-  if (a.kind === 'ai-provider-setting') return `${playerName(a.target)}切换为 ${a.provider === 'dsh' ? 'DSH' : '规则 AI'}`
+  if (a.kind === 'ai-provider-setting') return `${playerName(a.target)}切换为 ${recordedAiName(a.provider)}`
   return ({ undo: '撤回一步', timeout: '棋钟超时', 'clock-setting': '调整棋钟' } as Record<string, string>)[a.kind] ?? a.kind
 }
 export function appendRecording(game: RecordedGame, before: Snapshot, after: Snapshot, a?: Action, at = new Date().toISOString()): RecordedGame {

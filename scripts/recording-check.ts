@@ -49,6 +49,11 @@ try {
   assert.equal(playback(beforeUndo).frames.at(-1)!.board.diags.has('15,15'), true)
   assert.equal(playback(undone).frames.at(-1)!.board.diags.has('15,15'), false)
   assert.equal(playback(undone).frames.at(-2)!.board.diags.has('15,15'), true, 'undo does not erase historical actions')
+  const legacyTimeline = frozen(serialize())
+  const expectedMoves = legacyTimeline.moves
+  delete legacyTimeline.moves
+  applySnapshot(legacyTimeline)
+  assert.deepEqual(state.moves, expectedMoves, 'recover effective moves after undo from pre-NN recordings')
   dispatch({ kind: 'restart', color: 'blue' })
   assert.notEqual(state.recording!.id, firstId)
   assert.equal(state.recording!.events.length, 0)

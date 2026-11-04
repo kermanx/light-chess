@@ -973,7 +973,15 @@ export function applySnapshot(s: Snapshot, preserveIdentity = false) {
   // 联机恢复先暂停在最近保存的剩余时间，待房主确认所有人重连后再启动。
   if (!preserveIdentity && s.mode === 'online') state.clock.runningSince = null
   state.lastMove = s.lastMove ?? null
-  state.moves = s.moves ? [...s.moves] : []
+  state.moves = [...(s.moves ?? [])]
+  // Saves from before NN review already recorded moves and takebacks in their replay.
+  if (!s.moves && s.recording?.historyComplete) {
+    for (const event of s.recording.events) {
+      if (event.action) state.moves.push({ ...event.action, color: event.color })
+      else if (event.kind === 'undo') state.moves.pop()
+      else if (event.kind === 'board-size') state.moves = []
+    }
+  }
   clearHistory() // 历史栈不随快照走，恢复后从空栈重新累计
   state.size = s.size
   state.recording = s.phase === 'lobby' ? null : markRaw(s.recording ? alignRecording(s.recording, serialize()) : newRecording(serialize(), { id: s.sessionId, complete: false }))

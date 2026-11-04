@@ -4,8 +4,8 @@
  * value/q 约定：相对该 ply 行棋方；前端一律翻成蓝方视角展示（红方行棋取负）。
  * 云端服务地址由构建期 VITE_REVIEW_SERVICE_URL 注入；未定义时复盘页完全无云端入口。
  */
-import { reactive, watch } from 'vue'
-import type { Color, Home, Ori } from './game'
+import { computed, reactive, watch } from 'vue'
+import { edgeOf, type Dir, type Color, type Home, type Ori } from './game'
 import { isAiPlayer, state } from './store'
 import type { NnModelInfo } from './nn/models'
 import {
@@ -97,6 +97,7 @@ export const review = reactive({
   boundaryReflects: true,
   homes: {} as Partial<Record<Color, Home>>,
   moves: [] as ReviewMove[],
+  initialMirrors: undefined as ReviewGameInput['initialMirrors'],
   /** 当前数据源；用户在设置里切换后置 sourceChosen，否则 openReview 按可用性挑默认 */
   source: 'wasm' as ReviewSourceKind,
   sourceChosen: false,
@@ -124,7 +125,7 @@ export const review = reactive({
 /** 复盘页数据源选择器的可选项（云端只在构建期定义了服务地址时出现） */
 export function reviewSourceOptions(): { kind: ReviewSourceKind; label: string }[] {
   const opts: { kind: ReviewSourceKind; label: string }[] = []
-  if (remoteReviewEnabled) opts.push({ kind: 'remote', label: '云端' })
+  if (remoteReviewEnabled && !review.initialMirrors) opts.push({ kind: 'remote', label: '云端' })
   if (review.nnOk) opts.push({ kind: 'nn', label: 'NN（本机）' })
   opts.push({ kind: 'wasm', label: '内置引擎（本机）' })
   return opts
@@ -156,6 +157,7 @@ function gameInput(): ReviewGameInput {
     boundaryReflects: review.boundaryReflects,
     homes: review.homes,
     moves: review.moves,
+    initialMirrors: review.initialMirrors,
   }
 }
 
@@ -192,8 +194,26 @@ export async function runAnalysis() {
   if (activeSource === src) review.loading = false
 }
 
+// The coaches score alternating blue/red moves with reflecting boundaries. Old saves
+// without a replay are reviewable when their move list accounts for the entire board.
+export const canReview = computed(() => {
+  if (state.mode !== 'local' || state.players.length !== 2 || !state.boundaryReflects || !state.moves.length) return false
+  if (state.recording?.historyComplete) return true
+  if (state.openingSettings.enabled) return false
+  const homeEdges = new Set<string>()
+  for (const home of Object.values(state.homes)) {
+    for (const dir of [0, 1, 2, 3] as Dir[]) {
+      if (dir !== home.dir) homeEdges.add(edgeOf(home.x, home.y, dir))
+    }
+  }
+  return homeEdges.size + state.moves.length === state.edges.size + state.diags.size
+})
+
 /** 打开复盘页：从当前对局快照 homes + moves，探测可用数据源并开始分析 */
 export function openReview() {
+  if (!canReview.value) return
+  const initial = state.openingSettings.enabled ? state.recording?.initial : undefined
+  review.initialMirrors = initial ? { edges: initial.edges, diags: initial.diags } : undefined
   review.size = state.size
   review.boundaryReflects = state.boundaryReflects
   review.homes = JSON.parse(JSON.stringify(state.homes)) as Partial<Record<Color, Home>>
@@ -222,7 +242,7 @@ async function prepareAndRun() {
   review.nnOk = nnModel !== null
   const usable = reviewSourceOptions().some((o) => o.kind === review.source)
   if (!usable || !review.sourceChosen) {
-    review.source = remoteReviewEnabled ? 'remote' : review.nnOk ? 'nn' : 'wasm'
+    review.source = reviewSourceOptions()[0].kind
   }
   if (review.active) void runAnalysis()
 }

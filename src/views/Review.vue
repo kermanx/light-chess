@@ -5,11 +5,9 @@
  */
 import { computed, onUnmounted, ref } from 'vue'
 import {
-  edgeOf,
   PALETTE,
   simulate,
   type Color,
-  type Dir,
   type Ori,
   type Pt,
 } from '../game'
@@ -32,6 +30,7 @@ import {
   type ReviewSourceKind,
 } from '../review'
 import { modelList, refreshCkpts } from '../review'
+import { reviewBoardAt } from '../review/source'
 import { state } from '../store'
 
 const S = 28
@@ -49,38 +48,13 @@ onUnmounted(() => closeReview())
 const qSign = (v: number) => (v >= 0 ? '▲' : '▼')
 const qClass = (v: number) => (v >= 0 ? 'q-pos' : 'q-neg')
 
-// ---------- 棋盘重建：homes + 前 cursor 手 ----------
-const boardAt = computed(() => {
-  const edges = new Map<string, { color: Color }>()
-  const diags = new Map<string, { color: Color; ori: Ori }>()
-  for (const [c, h] of Object.entries(review.homes)) {
-    if (!h) continue
-    for (const d of [0, 1, 2, 3] as Dir[]) {
-      if (d !== h.dir) edges.set(edgeOf(h.x, h.y, d), { color: c as Color })
-    }
-  }
-  for (let i = 0; i < review.cursor && i < review.moves.length; i++) {
-    const m = review.moves[i]
-    const color = moverColor(i % 2)
-    if (m.kind === 'edge') edges.set(m.id, { color })
-    else diags.set(`${m.x},${m.y}`, { color, ori: m.ori })
-  }
-  return { edges, diags }
-})
-
-const simBoard = computed(() => ({
-  homes: review.homes,
-  edges: boardAt.value.edges,
-  diags: boardAt.value.diags,
-  size: review.size,
-  boundaryReflects: review.boundaryReflects,
-}))
+const boardAt = computed(() => reviewBoardAt(review, review.cursor))
 
 /** 双方最新光路（随 cursor 变化；渲染上淡化处理，不抢候选与曲线） */
 const lasers = computed(() => {
   const m = new Map<Color, ReturnType<typeof simulate>>()
   for (const c of ['blue', 'red'] as Color[]) {
-    if (review.homes[c]) m.set(c, simulate(simBoard.value, c))
+    if (review.homes[c]) m.set(c, simulate(boardAt.value, c))
   }
   return m
 })
