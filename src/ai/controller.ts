@@ -38,32 +38,25 @@ export const aiTurnColor = computed<Color | null>(() => {
 
 /** Keep the worker off the main thread; termination also cancels synchronous WASM searches. */
 export function startAiController(createWorker: (provider: AiProvider) => Worker = provider =>
-  provider === 'dsh' ? createDshWorker() : new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' })) {
+  provider === 'dsh' ? createDshWorker() : provider === 'nn' ? new Worker(new URL('./nn-worker.ts', import.meta.url), { type: 'module' }) : new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' })) {
   let active: Worker | null = null
   let timeout: ReturnType<typeof setTimeout> | null = null
   let generation = 0
   let search: { searchId: string; gameId: string; revision: number } | null = null
-  /**
-   * NN worker 池（key = modelId|stochastic）：NN 推理是异步的，迟到响应由代际号丢弃，
-   * 不必像 WASM 那样 terminate；复用 worker 让 onnx session 缓存生效，避免每手重载权重。
-   */
-  const nnWorkers = new Map<string, Worker>()
-  const acquireNnWorker = (key: string): Worker => {
-    let w = nnWorkers.get(key)
-    if (!w) {
-      w = new Worker(new URL('./nn-worker.ts', import.meta.url), { type: 'module' })
-      nnWorkers.set(key, w)
-    }
-    return w
-  }
+  // Only completed searches may return their worker to the pool. A canceled
+  // search must not deliver its reply to the next turn's message handler.
+  const idleNnWorkers = new Map<string, Worker>()
+  let activeNnKey: string | null = null
   const report = (type: AiSearchEvent['type'], detail: unknown) => {
     if (search) emitAiSearch({ ...search, type, detail })
   }
-  const cancel = (completed = false) => {
+  const cancel = (completed = false, reuseWorker = false) => {
     if (!completed) report('search-cancel', { reason: 'position-or-settings-changed' })
     search = null
     generation++
-    active?.terminate()
+    if (active && activeNnKey && reuseWorker) idleNnWorkers.set(activeNnKey, active)
+    else active?.terminate()
+    activeNnKey = null
     active = null
     if (timeout !== null) clearTimeout(timeout)
     timeout = null
@@ -96,6 +89,7 @@ export function startAiController(createWorker: (provider: AiProvider) => Worker
       aiStatus.error = message
     }
     if (!state.boundaryReflects) return fail('AI 需要开启边界反射')
+    if (provider === 'nn' && state.players.length !== 2) return fail('NN 模型只支持双人对局，请更换 AI')
     if (provider === 'nn' && !state.aiNnConfigs[color]) return fail('NN 座位缺少模型配置，请重新选择模型')
     let budgetMs = state.aiBudgetMs
     if (provider === 'wasm' && state.phase === 'play' && state.clockSettings.enabled) {
@@ -113,10 +107,12 @@ export function startAiController(createWorker: (provider: AiProvider) => Worker
     try {
       if (provider === 'dsh') dsh = readDshConfig(state.aiProfileIds[color])
       const nn = provider === 'nn' ? state.aiNnConfigs[color]! : null
-      // NN 座位走池化 worker（active 不持有它，cancel 不会 terminate）；WASM/DSH 维持每次新建。
-      const worker = nn
-        ? acquireNnWorker(`${nn.modelId}|${nn.stochastic ? 1 : 0}`)
-        : (active = createWorker(provider))
+      activeNnKey = nn?.modelId ?? null
+      const worker = activeNnKey
+        ? idleNnWorkers.get(activeNnKey) ?? createWorker('nn')
+        : createWorker(provider)
+      if (activeNnKey) idleNnWorkers.delete(activeNnKey)
+      active = worker
       const activity = new DshActivityTracker(Date.now())
       let lastProgressAt = 0, lastStage = ''
       worker.onmessage = (event: MessageEvent<AiWorkerMessage>) => {
@@ -146,7 +142,7 @@ export function startAiController(createWorker: (provider: AiProvider) => Worker
         if (!isAiAction(result.action)) return fail('AI 未返回可用落子，请重试')
         if ((request.phase === 'setup') !== (result.action.kind === 'setup')) return fail('AI 返回了错误阶段的动作')
         const finished = search!
-        cancel(true)
+        cancel(true, true)
         aiStatus.stats = result.stats ?? null
         aiStatus.status = 'idle'
         const action = result.action.kind === 'setup'
@@ -164,11 +160,11 @@ export function startAiController(createWorker: (provider: AiProvider) => Worker
       }
       if (provider !== 'dsh') timeout = setTimeout(() => {
         if (generation === expected) fail('AI 搜索超时，请重试或缩短思考时间')
-      }, (provider === 'nn' ? Math.max(budgetMs, 20_000) : budgetMs) + 10_000)
+      }, (provider === 'nn' ? Math.max(budgetMs, nn?.limit?.type === 'sims' ? 60_000 : 20_000) : budgetMs) + 10_000)
       if (nn) {
         const message: NnWorkerMessage = {
           request,
-          nn: { modelId: nn.modelId, stochastic: nn.stochastic, modelsBase: MODELS_BASE, limit: nn.limit },
+          nn: { modelId: nn.modelId, stochastic: nn.stochastic, modelsBase: MODELS_BASE, limit: nn.limit && { ...nn.limit } },
         }
         worker.postMessage(message)
       } else {
@@ -181,8 +177,8 @@ export function startAiController(createWorker: (provider: AiProvider) => Worker
   return () => {
     stop()
     cancel()
-    for (const w of nnWorkers.values()) w.terminate()
-    nnWorkers.clear()
+    for (const w of idleNnWorkers.values()) w.terminate()
+    idleNnWorkers.clear()
     aiStatus.status = 'idle'
   }
 }
