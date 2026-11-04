@@ -32,19 +32,24 @@ const FIXTURE_DIR = join(ROOT, 'test/fixtures')
 const MODELS_DIR = join(ROOT, 'public/models')
 
 const models = JSON.parse(readFileSync(join(MODELS_DIR, 'models.json'), 'utf8')) as NnModelInfo[]
-// fixture 的 policy/value 与权重绑定：每个尺寸钉一个对拍模型，其余模型只做加载冒烟
-const PARITY_MODEL_IDS: Record<number, string> = {
-  6: 'lightchess-6x6-vitm-gen32',
-  8: 'lightchess-8x8-vitm-gen16',
-}
+// fixture 的 policy/value 与权重绑定：所有 recommended 模型 + 原有钉子模型逐一对拍，
+// 其余模型只做加载冒烟。fixture 由 rl 侧 PyTorch 产出（见 rl/scripts/gen_*fixture*.py）。
+const PARITY: { size: number; modelId: string; fixture: string }[] = [
+  { size: 6, modelId: 'lightchess-6x6-vitm-gen32', fixture: 'parity_6x6.json' },
+  { size: 6, modelId: 'lightchess-6x6-reh25-prune2-gen16', fixture: 'parity_6x6_reh25_prune2_gen16.json' },
+  { size: 8, modelId: 'lightchess-8x8-vitm-gen16', fixture: 'parity_8x8.json' },
+  { size: 8, modelId: 'lightchess-8x8-king-gen16', fixture: 'parity_8x8_king_gen16.json' },
+]
+// 自对弈/基准用每尺寸的推荐模型（无推荐则取该尺寸第一个）
 const bySize = new Map<number, NnModelInfo>()
 for (const m of models) {
   const prev = bySize.get(m.boardSize)
-  if (!prev || PARITY_MODEL_IDS[m.boardSize] === m.id) bySize.set(m.boardSize, m)
+  if (!prev || (!prev.recommended && m.recommended)) bySize.set(m.boardSize, m)
 }
 assert.ok(bySize.has(6) && bySize.has(8), 'models.json 需包含 6×6 与 8×8 模型')
-for (const [size, id] of Object.entries(PARITY_MODEL_IDS)) {
-  assert.equal(bySize.get(Number(size))?.id, id, `${size}×${size} 对拍模型 ${id} 不在 models.json`)
+const modelById = new Map(models.map((m) => [m.id, m]))
+for (const p of PARITY) {
+  assert.ok(modelById.has(p.modelId), `对拍模型 ${p.modelId} 不在 models.json`)
 }
 
 function makeBackend(model: NnModelInfo, session: ort.InferenceSession): NnBackend {
@@ -66,9 +71,9 @@ const mulberry32 = (seed: number) => () => {
 }
 
 // ---------- 1+2. fixture 对拍 ----------
-for (const [fixtureName, size] of [['parity_6x6.json', 6], ['parity_8x8.json', 8]] as const) {
+for (const { modelId, fixture: fixtureName, size } of PARITY) {
   const fixture = JSON.parse(readFileSync(join(FIXTURE_DIR, fixtureName), 'utf8'))
-  const model = bySize.get(size)!
+  const model = modelById.get(modelId)!
   assert.equal(model.featureVersion, fixture.feature_version, `${fixtureName} 特征版本与模型不符`)
   const session = await ort.InferenceSession.create(join(MODELS_DIR, model.file))
   const backend = makeBackend(model, session)
