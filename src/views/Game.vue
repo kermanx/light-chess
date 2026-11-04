@@ -83,14 +83,13 @@ function changeAiProvider(color: Color, event: Event) {
   if (provider === 'dsh' && !state.aiProfileIds[color] && defaultDshProfileId()) {
     dispatch({ kind: 'ai-profile-setting', color: state.players[0], target: color, profileId: defaultDshProfileId() })
   }
-  if (provider === 'nn' && !state.aiNnConfigs[color]) {
+  if (provider === 'nn' && !sizeModels.value.some(m => m.id === state.aiNnConfigs[color]?.modelId)) {
     const model = sizeModels.value.find(m => m.recommended) ?? sizeModels.value[0]
     if (model) dispatch({ kind: 'ai-nn-setting', color: state.players[0], target: color, nn: { modelId: model.id } })
   }
 }
 function changeNnModel(color: Color, event: Event) {
   const current = state.aiNnConfigs[color]
-  if (!current) return
   dispatch({ kind: 'ai-nn-setting', color: state.players[0], target: color, nn: { ...current, modelId: (event.target as HTMLSelectElement).value } })
 }
 
@@ -959,6 +958,7 @@ const statusText = computed(() => {
             :min="SIZE_MIN"
             :max="SIZE_MAX"
             :value="state.size"
+            :disabled="state.aiPlayers.some(c => aiProviderFor(c) === 'nn')"
             @change="changeSize"
           />
           × {{ state.size }}
@@ -973,7 +973,7 @@ const statusText = computed(() => {
         <div v-for="c in state.aiPlayers" :key="`ai-${c}`" class="room ai-provider-control" :style="{ color: COLORS[c] }">
           {{ name(c) }} AI
           <select v-if="aiAuthority()" :value="aiProviderFor(c)" :aria-label="`${name(c)} AI 实现`" @change="changeAiProvider(c, $event)">
-            <option value="wasm">Rust / WASM</option><option value="dsh">DSH</option><option value="nn">NN（本机）</option>
+            <option value="wasm">Rust / WASM</option><option value="dsh">DSH</option><option value="nn" :disabled="state.players.length !== 2 || !sizeModels.length">NN（本机）</option>
           </select>
           <span v-else>{{ aiProviderName(aiProviderFor(c)) }}</span>
           <span v-if="aiProviderFor(c) === 'wasm'">每步最多 {{ state.aiBudgetMs / 1000 }} 秒</span>

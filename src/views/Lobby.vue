@@ -55,7 +55,8 @@ watch(hasAi, value => { if (value) state.boundaryReflects = true })
 // ---------- AI 座位引擎（内置 WASM 引擎 / DSH / 本地 NN 模型） ----------
 /** 本地 NN 模型目录（public/models/models.json） */
 const nnModels = ref<NnModelInfo[]>([])
-onMounted(() => { loadNnModels().then(l => (nnModels.value = l)).catch(() => { /* 目录不可用时只提供内置引擎 */ }) })
+const nnCatalogError = ref(false)
+onMounted(() => { loadNnModels().then(l => (nnModels.value = l)).catch(() => { nnCatalogError.value = true }) })
 /** 当前棋盘尺寸可用的 NN 模型 */
 const sizeModels = computed(() => nnModelsForSize(nnModels.value, state.size))
 /** 默认 NN 模型：推荐款优先，其次目录首个 */
@@ -85,7 +86,7 @@ const aiNnConfigs = computed(() => {
   return out
 })
 /** NN 模型只支持边界反射棋盘（与 WASM 引擎一致；有 AI 座位时边界反射会被强制开启） */
-const nnBlocked = computed(() => hasNnSeat.value && !state.boundaryReflects)
+const nnBlocked = computed(() => hasNnSeat.value && (count.value !== 2 || !state.boundaryReflects || !defaultNnModel.value))
 function changeSeat(color: Color, event: Event) {
   const value = (event.target as HTMLSelectElement).value
   const ai = value !== 'human'
@@ -322,7 +323,7 @@ onMounted(() => {
           </button>
         </div>
         <div class="seat-settings" aria-label="玩家座位">
-          <div v-for="p in configuredSeats" :key="p.id" class="seat-card"><label class="seat-row">
+          <div v-for="p in configuredSeats" :key="p.id" class="seat-card"><div class="seat-row">
             <span :style="{ color: p.hex }">{{ p.name }}方{{ preparing === 'online' && p.id === 'blue' ? '（房主）' : '' }}</span>
             <span class="seat-ctls">
               <select class="sig-select" :aria-label="`${p.name}方控制方式`" :value="selectedAi.includes(p.id) ? (aiProviders[p.id] ?? 'wasm') : 'human'"
@@ -330,10 +331,10 @@ onMounted(() => {
                 <option value="human">{{ preparing === 'online' ? '真人玩家' : '人类' }}</option>
                 <option value="wasm">AI · Rust / WASM</option>
                 <option value="dsh">AI · DSH</option>
-                <option value="nn">AI · 神经网络（本机）</option>
+                <option value="nn" :disabled="count !== 2">AI · 神经网络（本机双人）</option>
               </select>
-              <template v-if="selectedAi.includes(p.id) && aiProviders[p.id] === 'nn'">
-                <select v-model="seatEngine[p.id]" class="sig-select" :aria-label="`${p.name}方 NN 模型`">
+              <template v-if="selectedAi.includes(p.id) && aiProviders[p.id] === 'nn' && defaultNnModel">
+                <select :value="nnModelOf(p.id)?.id" @change="seatEngine[p.id] = ($event.target as HTMLSelectElement).value" class="sig-select" :aria-label="`${p.name}方 NN 模型`">
                   <option v-for="m in sizeModels" :key="m.id" :value="m.id" :title="m.eloNote">
                     {{ m.name }} · Elo {{ m.elo }}{{ m.eloNote ? '†' : '' }}{{ m.recommended ? ' · 推荐' : '' }}
                   </option>
@@ -361,11 +362,11 @@ onMounted(() => {
                 </label>
               </template>
             </span>
-          </label>
+          </div>
           <DshProfileSelect v-if="selectedAi.includes(p.id) && aiProviders[p.id] === 'dsh'" v-model="aiProfileIds[p.id]" :label="`${p.name}方 LLM 配置`" />
           </div>
         </div>
-        <label v-if="hasWasm || hasNnSeat" class="laser-opt">
+        <label v-if="hasWasm || selectedAi.some(c => aiProviders[c] === 'nn' && limitModeOf(c) === 'time')" class="laser-opt">
           AI 每步最多思考（WASM 与「按时间」NN 座位共用）
           <select v-model.number="state.aiBudgetMs" class="sig-select" aria-label="AI 每步思考上限">
             <option :value="3000">3 秒</option>
@@ -375,12 +376,13 @@ onMounted(() => {
         </label>
         <DshSettings v-if="hasDsh" />
         <p v-if="hasDsh" class="ai-hint">DSH 不使用 WASM 的思考上限；启用棋钟时仍受棋局时间限制。</p>
-        <p v-if="!sizeModels.length && nnModels.length" class="ai-hint">
-          NN 模型只支持 {{ [...new Set(nnModels.map((m) => m.boardSize))].join('、') }}× 棋盘：把下方棋盘尺寸改为
+        <p v-if="hasNnSeat && count !== 2" class="ai-hint">本机 NN 模型只支持双人对局，请调整人数或更换 AI。</p>
+        <p v-if="hasNnSeat && !sizeModels.length && nnModels.length" class="ai-hint">
+          当前尺寸没有 NN 模型，请选择
           <button class="btn-plain size-chip" v-for="s in [...new Set(nnModels.map((m) => m.boardSize))]" :key="s" @click="state.size = s">{{ s }}×{{ s }}</button>
-          即可为 AI 座位选择神经网络模型。
+          棋盘，或更换该座位的 AI。
         </p>
-        <p v-if="nnBlocked" class="error" style="margin: 0">NN 模型需要开启边界反射（与内置引擎一致）。</p>
+        <p v-if="hasNnSeat && !nnModels.length" class="ai-hint">{{ nnCatalogError ? 'NN 模型目录加载失败，请刷新页面或更换 AI。' : '正在读取 NN 模型目录…' }}</p>
         <p v-if="hasAi" class="ai-hint">AI 可提前落子，自动布置基地，需要边界反射。联机 AI 由房主运行，不占真人连接；NN 模型在本机浏览器内推理，无需联网。</p>
         <p v-if="preparing === 'online' && selectedAi.includes('blue')" class="ai-hint">蓝方由 AI 执棋，你仍是房主，可以管理房间和 AI。请保持房主页面在线。</p>
         <label class="laser-opt">棋盘
@@ -459,7 +461,7 @@ onMounted(() => {
             :min="SIZE_MIN"
             :max="SIZE_MAX"
             :value="state.size"
-            :disabled="state.openingSettings.enabled"
+            :disabled="hasNnSeat || state.openingSettings.enabled"
             @change="clampSize"
           />
           × {{ state.size }} 格

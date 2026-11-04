@@ -306,7 +306,7 @@ export const wouldEncloseDiag = (x: number, y: number, ori: Ori, color: Color) =
 }
 
 /** 棋盘尺寸合法范围 */
-export const SIZE_MIN = 16
+export const SIZE_MIN = 6
 export const SIZE_MAX = 48
 
 // ---------- 撤回一步的历史栈 ----------
@@ -599,6 +599,7 @@ function validate(a: Action, local: boolean, ai = false): boolean {
   if (a.kind === 'board-size' || a.kind === 'boundary-setting' || a.kind === 'clock-setting') {
     // 仅布置阶段可调；联机只有房主可调，单机任意
     if (state.phase !== 'setup') return false
+    if (a.kind === 'board-size' && state.aiPlayers.some(c => aiProviderFor(c) === 'nn')) return false
     if (a.kind === 'boundary-setting' && !a.enabled && state.aiPlayers.length) return false
     return state.mode === 'local' || a.color === state.players[0]
   }

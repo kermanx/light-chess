@@ -19,21 +19,17 @@ try {
   await page.getByRole('button', { name: /单机对战/ }).click()
   // 蓝、红都设为 AI；默认 36 棋盘无 NN 模型 → 点提示里的 6×6 快键
   for (const name of ['蓝方控制方式', '红方控制方式']) {
-    await page.getByLabel(name).selectOption('ai')
+    await page.getByLabel(name).selectOption('nn')
   }
+  assert(await page.getByRole('button', { name: '开始对局' }).isDisabled())
   await page.getByRole('button', { name: '6×6', exact: true }).first().click()
-  for (const name of ['蓝方 AI 引擎', '红方 AI 引擎']) {
-    await page.getByLabel(name).selectOption({ index: 1 })
+  for (const side of ['蓝方', '红方']) {
+    assert.match(await page.getByLabel(side + ' NN 模型').locator('option:checked').innerText(), /推荐/)
+    await page.getByLabel(side + ' NN 计算量').selectOption('sims')
+    await page.getByLabel(side + ' MCTS 模拟数').selectOption('50')
   }
   await page.getByRole('button', { name: '开始对局' }).click()
 
-  // 双 AI 自动对弈：等顶栏出现 NN 模型名标签，且棋盘上出现镜子（边镜线段）
-  await page.waitForSelector('text=NN', { timeout: 1000 }).catch(() => {})
-  await page.waitForFunction(
-    () => document.querySelectorAll('aside .room').length > 0 &&
-      [...document.querySelectorAll('aside .room')].some((el) => el.textContent.includes('光镜 6×6')),
-    { timeout: 15_000 },
-  )
   // 等 AI 至少落 6 手（存档 moves 字段随每次落子增长）或已分出胜负
   await page.waitForFunction(
     () => {
@@ -42,7 +38,7 @@ try {
         return (save.moves?.length ?? 0) >= 6 || save.phase === 'over'
       } catch { return false }
     },
-    { timeout: 120_000 },
+    null, { timeout: 120_000 },
   )
   const finalSave = await page.evaluate(() => {
     const s = JSON.parse(sessionStorage.getItem('light-chess:save') || localStorage.getItem('light-chess:save') || '{}')

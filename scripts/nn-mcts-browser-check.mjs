@@ -19,12 +19,9 @@ try {
 
   await page.getByRole('button', { name: /单机对战/ }).click()
   // 蓝方 = 内置 WASM 引擎，红方 = NN 模型（MCTS）；默认 36 棋盘无 NN 模型 → 点 6×6 快键
-  for (const name of ['蓝方控制方式', '红方控制方式']) {
-    await page.getByLabel(name).selectOption('ai')
-  }
-  await page.getByRole('button', { name: '6×6', exact: true }).first().click()
-  await page.getByLabel('蓝方 AI 引擎').selectOption('wasm')
-  await page.getByLabel('红方 AI 引擎').selectOption({ index: 1 })
+  await page.getByLabel('蓝方控制方式').selectOption('wasm')
+  await page.getByLabel('红方控制方式').selectOption('nn')
+  await page.getByRole('button', { name: '6×6', exact: true }).click()
   // 「AI 每步思考上限」对 WASM/NN 一致生效
   await page.getByLabel('AI 每步思考上限').selectOption('3000')
   await page.getByRole('button', { name: '开始对局' }).click()
@@ -37,7 +34,7 @@ try {
         return (save.moves?.length ?? 0) >= 10 || save.phase === 'over'
       } catch { return false }
     },
-    { timeout: 240_000 },
+    null, { timeout: 240_000 },
   )
   const finalSave = await page.evaluate(() => {
     const s = JSON.parse(sessionStorage.getItem('light-chess:save') || localStorage.getItem('light-chess:save') || '{}')
